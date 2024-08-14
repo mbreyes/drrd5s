@@ -31,8 +31,9 @@ def plot_n_trials(df):
     plt.figure()
     # checking the max criterion achieved
     df_aux = df.groupby(['rat','group']).trial.max().reset_index()
-    sns.boxplot(x='group',y='trial', data= df_aux)
+    ax = sns.boxplot(x='group',y='trial', data= df_aux)
     plt.ylabel('number of trials')
+    return ax
 
 def plot_all_histograms(dt:float = 0.1, tmax:float = 4):
     
@@ -56,35 +57,41 @@ def plot_all_histograms(dt:float = 0.1, tmax:float = 4):
         plt.ylabel('number of responses')
         plt.title(f'rat {rat} group {dfs.group.unique()}')
 
+def plot_group_averages_over_sessions(var:str='duration',\
+    by=['rat','session','group'], compl= ' (s)', gtype='lm'):
+
+    # grouping the variable to obtain one value per animal
+    dfaux = df.groupby(by= by)[[var]].mean().reset_index()
+    
+    # plotting the mean duration for each rat
+    plt.figure()
+    
+    if gtype == 'lm': 
+        ax = sns.lmplot(x='session',y= var,hue='group',\
+                        markers=['>','o','+','<'], data= dfaux)
+    elif gtype == 'bar':
+        ax = sns.barplot(x='session',y= var,hue='group',\
+                        data= dfaux)
+    else:
+        print(f'Unknown type of graph ({gtype}), use lm or bar')
+        
+    # adding labels to the ylabel
+    plt.ylabel(var+compl)
+    
+    return ax
 
 # --- main ---
 # reading data from disk
 df    = pd.read_csv(DATA_PATH + PREFIX+'.csv')
 dfab5 = pd.read_csv(DATA_PATH + PREFIX+'_frac.csv')
 
-# plotting the mean duration for each rat
-sns.lmplot(x='session',y='duration',hue='group', markers=['>','o','+','<'],\
-           data= df.groupby(by=['rat','session','group']).duration.mean().reset_index())
 
-plt.figure()
-# fraction of reinforded trials
-sns.lmplot(x='session',y='reinforced',hue='group', markers=['>','o','+','<'],\
-            data= df.groupby(by=['rat','session','group']).reinforced.mean().reset_index())
+plot_group_averages_over_sessions(var='duration'  , compl= ' (s)')
+plot_group_averages_over_sessions(var='reinforced', compl= ' (fraction)')
+plot_group_averages_over_sessions(var='duration'  , compl= ' (s)', gtype= 'bar')
+plot_group_averages_over_sessions(var='reinforced', compl= ' (fraction)', gtype= 'bar')
 
-plt.figure()
-# duration in barplots
-sns.barplot(x='session',y='duration',hue='group',\
-            data= df.groupby(by=['rat','session','group']).duration.mean().reset_index())
-
-plt.figure()
-# raction of reinforcements in barplots
-sns.barplot(x='session',y='reinforced',hue='group',\
-            data= df.groupby(by=['rat','session','group']).reinforced.mean().reset_index())
-    
-# plotting the histograms the mean+std and max criterion
-#plot_all_histograms()
-
-plot_n_trials(df)
+ax = plot_n_trials(df)
 
 plot_crit_progress(df)
 
