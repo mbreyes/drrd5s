@@ -1,0 +1,11 @@
+#!/bin/bash
+
+fname=$1
+
+fname=$(basename $(ls $fname.* | sort -rn | head -n 1)))
+
+#session=$(get_sess_pad $fname)
+
+new_sess=$(add_one_padded $fname)
+
+echo new_sess

@@ -1,0 +1,12 @@
+#!/bin/bash
+
+if [ $# -eq 0 ]; then
+  # No parameter provided, use today's date
+  date=$(date +'%m/%d/%y')
+  echo $date
+else
+  # Parameter provided, use n days ago
+  n=$1
+  date=$(date -d "$(date +%Y-%m-%d) -$n day" +'%m/%d/%y')
+  echo $date
+fi

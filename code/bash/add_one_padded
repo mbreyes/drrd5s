@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Read the input number
+#read -p "Enter a three-digit number: " num
+
+num=$1
+
+# Add 1 to the number (using decimal arithmetic)
+num=$((10#$num + 1))
+
+# Pad the number with leading zeros
+num=$(printf "%03d" $num)
+
+# Output the result
+echo $num

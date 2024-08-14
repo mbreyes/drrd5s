@@ -1,0 +1,8 @@
+PREFIX=AR7
+
+for rat in $(seq 1 14)
+do
+    echo $(ls AR7$(printf "%03d"  "$rat")* | wc -l)
+    echo $(ls AR7$(printf "%03d" "$rat")* | sort | tail -n 1)
+    echo ---
+done

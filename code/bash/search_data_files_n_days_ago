@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Get the path from the command line argument, or use default
+# Get the date n days ago
+if [ -z "$1" ]; then
+  date_n_days_ago=$(./date_n_days_ago)
+else
+  date_n_days_ago=$(./date_n_days_ago $1)
+fi
+
+if [ -z "$2" ]; then
+  path="/home/mbreyes/Downloads"
+else
+  path="$2"
+fi
+
+
+# Search for files containing the date
+files=$(grep -lr "Start Date: $date_n_days_ago" "$path"/*)
+
+# Print the list of files
+if [ -z "$files" ]; then
+    echo "No files found containing the string 'Start Date: $date_n_days_ago'."
+else
+  echo "$files"
+fi

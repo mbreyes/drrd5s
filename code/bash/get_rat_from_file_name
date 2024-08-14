@@ -1,0 +1,8 @@
+#!/bin/bash
+
+FNAME=$1
+PREFIX=$2
+
+pattern=$(echo "${FNAME}" | sed "s:${PREFIX}\(.*\)\..*:\1:")
+echo "${pattern}"
+

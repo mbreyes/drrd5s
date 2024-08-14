@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# Define the source and destination folders
+src_folder="/media/mbreyes/BIOTERIO"
+dst_folder="../../data/raw/AR6"
+
+days_ago=$1
+
+#search_data_files_n_days_ago 1 $src_folder
+
+for fname in $(search_data_files_n_days_ago $days_ago $src_folder) ; do
+    cut_fname=$(basename $fname);
+    echo $cut_fname
+    grep "Start Date:" $fname
+
+    # getting the prefix for the file
+    prefix="${cut_fname:0:3}";
+
+    # getting the rat number
+    rat=$(get_rat_from_file_name $cut_fname);
+
+    # finding what is the next session (extension) to be saved
+    next_sess=$(get_next_sess $dst_folder/$prefix$rat)
+
+    # copy the file to the destination folder with the new extension
+    cp $fname $dst_folder/$prefix$rat.$next_sess
+done

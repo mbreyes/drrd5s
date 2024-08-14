@@ -1,0 +1,9 @@
+#!/bin/bash
+
+filename=$1
+
+# Extract the extension using parameter expansion
+extension="${filename##*.}"
+
+# Output the result
+echo $extension

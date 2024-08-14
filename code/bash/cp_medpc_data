@@ -1,0 +1,47 @@
+#!/bin/bash
+
+dst_folder="../../data/raw"
+
+# checking if first argument if empty
+
+if [ -z "$1" ]; then
+    # if no parameters are passed use 0 days ago
+    # this means search for files from the current day
+    days_ago=0
+
+else
+    # use the first argument as the number of days ago
+    # to search for files
+    days_ago=$1
+fi
+
+# checking if the second argument is empty
+if [ -z "$2" ]; then
+    # Define the source folder (where to look for files)
+    src_folder="/home/mbreyes/Download"
+
+else
+    # if there is an argument use is as the source folder
+    src_folder="$2"
+fi
+
+for fname in $(search_data_files_n_days_ago $days_ago $src_folder) ; do
+    cut_fname=$(basename $fname);
+    echo $cut_fname
+    grep "Start Date:" $fname
+
+    # getting the prefix for the file
+    prefix="${cut_fname:0:3}";
+    echo prefix=$prefix
+
+    # getting the rat number
+    rat=$(get_rat_from_file_name $cut_fname $prefix);
+    echo rat=$rat
+
+    # finding what is the next session (extension) to be saved
+    next_sess=$(get_next_sess $dst_folder/$prefix/$prefix$rat)
+    echo next_sess=$next_sess
+
+    # copy the file to the destination folder with the new extension
+    cp -b $fname $dst_folder/$prefix/$prefix$rat.$next_sess
+done
