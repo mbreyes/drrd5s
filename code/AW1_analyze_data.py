@@ -106,3 +106,8 @@ sns.boxplot(x='session',y='frac',hue='group',data=dfab5)
 
 plt.figure()
 sns.barplot(x='session',y='n_trials',hue='group',data=dfab5, palette='tab10')
+
+plt.figure()
+df_reinf_a5 = df.query('duration>5').groupby(['rat','session','group']).reinforced.count().reset_index()
+sns.boxplot(x='session',y='reinforced',hue='group',data=df_reinf_a5, palette='tab10')
+plt.ylabel('number of resps above 5s')
