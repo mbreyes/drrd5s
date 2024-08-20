@@ -80,6 +80,29 @@ def plot_group_averages_over_sessions(var:str='duration',\
     
     return ax
 
+def get_group(df,rat):
+    
+    group= df.query(f'rat=={rat}').group.unique()
+    
+    if len(group)==1:
+        return group[0]
+    else:
+        print('No group or mor than one group found')
+        return None
+    
+def plot_percentile_over_sessions(df, percentile=90):
+    
+    # making a list with percentile over session for all rats
+    data = [[rat, sess, np.percentile(df.query(f'rat=={rat} and session=={sess}').duration.to_numpy(),percentile)] for sess in range(1,10) for rat in range(39,51)]
+
+    
+    data = pd.DataFrame(data, columns=['rat','session',f't({percentile}%)'])
+    
+    data.loc[:,'group'] = [get_group(df, rat) for rat in data.rat]
+    print(data)
+    plt.figure()
+    sns.lmplot(x='session', y= f't({percentile}%)', hue= 'group', data=data )
+    
 # --- main ---
 # reading data from disk
 df    = pd.read_csv(DATA_PATH + PREFIX+'.csv')
@@ -90,6 +113,9 @@ plot_group_averages_over_sessions(var='duration'  , compl= ' (s)')
 plot_group_averages_over_sessions(var='reinforced', compl= ' (fraction)')
 plot_group_averages_over_sessions(var='duration'  , compl= ' (s)', gtype= 'bar')
 plot_group_averages_over_sessions(var='reinforced', compl= ' (fraction)', gtype= 'bar')
+
+
+plot_percentile_over_sessions(df, percentile=95)
 
 ax = plot_n_trials(df)
 
@@ -111,3 +137,4 @@ plt.figure()
 df_reinf_a5 = df.query('duration>5').groupby(['rat','session','group']).reinforced.count().reset_index()
 sns.boxplot(x='session',y='reinforced',hue='group',data=df_reinf_a5, palette='tab10')
 plt.ylabel('number of resps above 5s')
+
