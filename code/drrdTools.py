@@ -882,7 +882,8 @@ def calc_histogram(T, x= np.arange(0, 12, 0.1)):
     return (y)
 
 
-def plot_all_curves(x, fit, fit_single, dt, fontDict=font, plotSingle=False, xlimits=[-dt / 2, 3]):
+def plot_all_curves(x, fit, fit_single, dt, fontDict=font, plotSingle=False,\
+                    xlimits=[-dt / 2, 3]):
     # plotting the separate gaussians
 
     plt.plot(x, separate_gaussians(x, fit, number=0), '-.', c='k', lw=1.0, label='Gauss1')
