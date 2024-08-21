@@ -882,7 +882,7 @@ def calc_histogram(T, x= np.arange(0, 12, 0.1)):
     return (y)
 
 
-def plot_all_curves(x, fit, fit_single, dt, fontDict=font, plotSingle=False,\
+def plot_all_curves(x, fit, fit_single, fontDict=font, plotSingle=False,\
                     xlimits=[-dt / 2, 3]):
     # plotting the separate gaussians
 
@@ -964,7 +964,7 @@ def fit_single_animal(animal, session, x= x, plotFlag=True, indexes=(0, None),\
 
     # drawing all curves into the graph
     if plotFlag:
-        plot_all_curves(xfine, popt, popt_sngl, dtFine, xlimits=xlimits)
+        plot_all_curves(xfine, popt, popt_sngl, xlimits=xlimits)
     #       add_info_to_graph(animal,session,r)
     #
 
@@ -999,7 +999,7 @@ def fit_single_animal_from_matrix(D, y, animal, session, plotFlag=True, indexes=
 
     # drawing all curves into the graph
     if plotFlag:
-        plot_all_curves(xfine, popt, popt_sngl, dtFine, xlimits=xlimits)
+        plot_all_curves(xfine, popt, popt_sngl, xlimits=xlimits)
     #       add_info_to_graph(animal,session,r)
     #
 
