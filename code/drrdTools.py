@@ -926,26 +926,33 @@ def fix_parameters_order(p):
         return (p)
 
 
-def fit_single_animal(animal, session, plotFlag=True, indexes=(0, None), ax=None, prefix='AL0', dataPath=homePath, initParsDoubleGauss=(0.5, 0.2, 0.1, 1, 0.5), boundsDoubleGauss=(0, [1, 5, 5, 10, 10]), xlimits=[-dt / 2, 3]):
+def fit_single_animal(animal, session, x= x, plotFlag=True, indexes=(0, None),\
+    ax=None, prefix='AL0', dataPath=homePath,\
+    initParsDoubleGauss=(0.5, 0.2, 0.1, 1, 0.5),\
+    boundsDoubleGauss=(0, [1, 5, 5, 10, 10]), xlimits=[-dt / 2, 3]):
     # get data from file: 
     # y is the probabilty density with bins defined by x
     # D is the data from the session obtained from drrdTools.drrd() method
 
     # getting data from file
-    D, y = get_data_from_rat(animal, session, x, indexes, prefix=prefix, dataPath=dataPath)
+    D, y = get_data_from_rat(animal, session, x, indexes, prefix=prefix,\
+                             dataPath=dataPath)
 
     # Checking if D is not empty    
     if len(D) == 0:
         print('No data found, quiting.')
-        return ([np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan])
+        return [np.nan]*9
 
     # fit single gaussian
-    popt_sngl, pcov_sngl = curve_fit(single_gaussian, x, y, bounds=(0, [10, 10]), p0=[1, 0.5])
+    popt_sngl, pcov_sngl = curve_fit(single_gaussian, x, y,\
+                                     bounds=(0, [10, 10]), p0=[1, 0.5])
+    
     d_sngl = calculate_distance(x, y, popt_sngl, model='single')
 
     # fit the double gaussian
     #initParsDouble = (0.5, 0.2, 0.1, 1, 0.5)
-    popt, pcov = curve_fit(double_gaussian, x, y, bounds=boundsDoubleGauss, p0=initParsDoubleGauss)
+    popt, pcov = curve_fit(double_gaussian, x, y, bounds=boundsDoubleGauss,\
+                           p0=initParsDoubleGauss)
 
     popt = fix_parameters_order(popt)
 
