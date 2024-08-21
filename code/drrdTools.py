@@ -851,13 +851,24 @@ def get_data_from_rat(animal, session, x, indexes=(0, None), prefix='AL0', dataP
 
     return (D, y)
 
+def get_bin_spacing(edges= np.arange(0,12,0.1)):
+    
+    if len(edges) == 0:
+        print('Warning: edges vector is empty, returning 0')
+        return 0
 
-def calc_histogram(T, x):
+    delta = np.diff(edges)
+    return np.mean(delta)    
+
+def calc_histogram(T, x= np.arange(0, 12, 0.1)):
     # calculating the histogram counts for the data
     import seaborn as sns
 
     pal = sns.cubehelix_palette(6, rot=-.45, light=.7)
-    data = plt.hist(T, bins=x - dt / 2, histtype='stepfilled', density=True, align='mid', color=pal[0], alpha=1)
+    
+    delta = get_bin_spacing(x)
+    
+    data = plt.hist(T, bins=x - delta / 2, histtype='stepfilled', density=True, align='mid', color=pal[0], alpha=1)
 
     # selecting only the counts and ignoring the bins edges
     data = data[0]
