@@ -144,7 +144,7 @@ def plotDrrd(D, title_label='Title_Label'):
 
     # --- Plotting the response distributions ---
     xmin = 0
-    xmax = 10
+    xmax = 20
     # xma = np.round(np.mean(D[:,0])+4*np.std(D[:,0]))
     Nx_grid = 100
     x_grid = np.linspace(xmin, xmax, Nx_grid)
@@ -341,10 +341,14 @@ def trial_segmentation(prefix='AU', rat= 15, session=1, trl_beg= [1], plotFlag=F
                         4: 'r_release'  ,   # right lever release time
                        11: 'on_l_light' ,   # on left light
                        12: 'on_r_light' ,   # on right light
+                       13: 'ins_l_lever',   # insert (activate) left lever
+                       14: 'ins_r_lever',   # insert (activate) right lever
                        17: 'phase_change',  # moment where S2 starts being reinf.
                        18: 'prime'      ,   # prime time (criterion achieved)
                        21: 'off_l_light',   # off left light
                        22: 'off_r_light',   # off right light
+                       23: 'ret_l_lever',   # retract (inactivate) left lever
+                       24: 'ret_r_lever',   # retract (inactivate) right lever
                        28: 'trial1_end' ,   # end of trial 1
                        29: 'trial2_end' ,   # end of trial 2
                        16: 'on_food'    ,   # feeder deactivation
@@ -936,7 +940,7 @@ def fit_single_animal(animal, session, x= x, plotFlag=True, indexes=(0, None),\
     # D is the data from the session obtained from drrdTools.drrd() method
 
     # getting data from file
-    D, y = get_data_from_rat(animal, session, x, indexes, prefix=prefix,\
+    D, y = get_data_from_rat(animal, [session], x, indexes, prefix=prefix,\
                              dataPath=dataPath)
 
     # Checking if D is not empty    
@@ -947,6 +951,8 @@ def fit_single_animal(animal, session, x= x, plotFlag=True, indexes=(0, None),\
     # fit single gaussian
     popt_sngl, pcov_sngl = curve_fit(single_gaussian, x, y,\
                                      bounds=(0, [10, 10]), p0=[1, 0.5])
+    
+    print(popt_sngl)
     
     d_sngl = calculate_distance(x, y, popt_sngl, model='single')
 
