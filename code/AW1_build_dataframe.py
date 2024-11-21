@@ -19,7 +19,7 @@ PREFIX = 'AW1'
 DATA_PATH = '../data/raw/'+PREFIX+'/'
 OUTPUT_PATH = '../output/temp/'
 ABOVE = 5 # in seconds
-LAST_SESSION = 3
+LAST_SESSION = 19
 
 rats_g1 = [39,43,47] # grupo linear
 rats_g2 = [40,44,48] # grupo exp 10% 
