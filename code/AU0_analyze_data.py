@@ -42,7 +42,7 @@ plt.hist(dfs.duration)
 plt.axvline(dfs.duration.mean())
 plt.axvline(dfs.duration.mean()+dfs.duration.std())
 plt.axvline(dfs.duration.mean()+dfs.duration.std()*1.5)
-plt.axvline(np.percentile(dfs.duration,85), color='k', ls='--')
+# plt.axvline(np.percentile(dfs.duration,85), color='k', ls='--')
     
 # dfab5 = pd.DataFrame(frac_above_5s,columns=['rat','group','session','frac_above_5s','nresps'])
 
