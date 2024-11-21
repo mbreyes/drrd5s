@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import drrdTools as dr
 
 plt.style.use('ggplot')
 sns.set(style='ticks')
@@ -102,11 +103,60 @@ def plot_percentile_over_sessions(df, percentile=90):
     print(data)
     plt.figure()
     sns.lmplot(x='session', y= f't({percentile}%)', hue= 'group', data=data )
+
+
+def analyze_double_gauss_fit(df):
     
+    mus = []
+    rat = 40
+    for rat in df.rat.unique():
+        for session in df.query(f'rat=={rat}').session.unique():
+        
+            print( f"rat: {rat}, session: {session}")
+            plt.figure()    
+            p = dr.fit_single_animal(animal=rat,session=session,x=np.arange(0,11,0.1),\
+                    plotFlag=True, prefix='AW1', dataPath='../data/raw/AW1/',\
+                    xlimits=[0,15], boundsDoubleGauss=(0,[1,2,8,15,8]),\
+                    initParsDoubleGauss=(0.5, 0.2, 0.1, 1, 0.5));
+    
+            mus.append([rat, session, p[3]])
+    return mus
+
+
+def check_log_scale(df):
+    
+    for rat in df.rat.unique():
+        for session in df.query(f'rat=={rat}').session.unique():
+        
+            print( f"rat: {rat}, session: {session}")
+            plt.figure()    
+
+            D = dr.drrd(prefix='AW1', animalID=rat, sessions=[session],\
+                        dataPath='../data/raw/AW1/'); 
+            plt.figure()
+            plt.hist(D[:,0], bins=np.arange(0,12,0.1));
+            plt.hist(np.log(D[:,0]),bins=np.arange(-4,5,0.2))
+    
+def compare_kde(df, x= 'logdur', sess= [5,15], cummulative= True):
+
+    df.loc[:,'logdur']= np.log(df.duration)
+    
+    for rat in df.rat.unique():
+        plt.figure()
+        plt.title(f'rat={rat}')
+        dfaux =df.query(f'rat=={rat} and session in {sess}')
+        sns.kdeplot(x=x, data= dfaux, fill= True, palette="crest",\
+                    alpha=.5, hue='session',common_norm=False,\
+                    cumulative= cummulative)
+        plt.axvline(np.log(10))
+
+        
 # --- main ---
 # reading data from disk
 df    = pd.read_csv(DATA_PATH + PREFIX+'.csv')
 dfab5 = pd.read_csv(DATA_PATH + PREFIX+'_frac.csv')
+
+compare_kde(df, x= 'logdur', sess= [13,14,15], cummulative= False)
 
 
 plot_group_averages_over_sessions(var='duration'  , compl= ' (s)')
@@ -138,3 +188,6 @@ df_reinf_a5 = df.query('duration>5').groupby(['rat','session','group']).reinforc
 sns.boxplot(x='session',y='reinforced',hue='group',data=df_reinf_a5, palette='tab10')
 plt.ylabel('number of resps above 5s')
 
+# mus = analyze_double_gauss_fit(df)
+
+# check_log_scale(df)
