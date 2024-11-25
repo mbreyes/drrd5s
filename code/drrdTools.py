@@ -457,7 +457,7 @@ def trial_segmentation(prefix='AU', rat= 15, session=1, trl_beg= [1], plotFlag=F
 
 
 def individual_drrd(prefix='AB1', animalID=64, session=1, plotFlag=True, dataPath='', \
-		    events_to_eliminate= None):
+		    events_to_eliminate= None, data= None, elimin_begin= True):
     # ________________________________________________________
     # Created on:       January, 14, 2019
     # Created by:       Marcelo Bussotti Reyes
@@ -509,11 +509,18 @@ def individual_drrd(prefix='AB1', animalID=64, session=1, plotFlag=True, dataPat
     sessionCol  = 5  # session variable column index
     Ncols       = 6
 
-    data = med2tec(dataPath + filename)  # reads data from medpc format to time-event code
+    # checking if a specific list of trials was provided
+    if type(data) == type(None):
+        print('No data provided, trying to read from raw file')
+        data = med2tec(dataPath + filename)  # reads data from medpc format to time-event code
+    else:
+        print('Analyzing data provided')
+        
+    if elimin_begin:
+        # eliminating all the data that occurs before the event 11 (start session code)
+        data = eliminate_beginning(data, startEvent = 11)
     
-    # eliminating all the data that occurs before the event 11 (start session code)
-    data = eliminate_beginning(data, startEvent = 11)
-    
+    # eliminating events that won't be used in the analysis
     data = eliminate_events(data, events_to_eliminate = events_to_eliminate)
 
 
@@ -711,7 +718,8 @@ def extractCriterion(phAdv, primed, primeTimes):
     return (newPrimeTimes)
 
 
-def drrd(prefix='AB1', animalID=7, sessions=[7], plotFlag=True, dataPath='', events_to_eliminate = None):
+def drrd(prefix='AB1', animalID=7, sessions=[7], plotFlag=True, dataPath='',
+         events_to_eliminate = None, data= None, elimin_begin= True):
     # function D = drrd(prefix,animalID,sessions,plotFlag)
     # prefix = the code for the experiment
     # example: D = drrd('AB1',1,1:9,True)
@@ -723,9 +731,14 @@ def drrd(prefix='AB1', animalID=7, sessions=[7], plotFlag=True, dataPath='', eve
 
     for session in sessions:
         if len(D) > 0:
-            D = np.vstack((D, individual_drrd(prefix, animalID, session, plotFlag=False, dataPath=dataPath, events_to_eliminate = events_to_eliminate)))
+            D = np.vstack((D, individual_drrd(prefix, animalID, session,\
+                    plotFlag=False, dataPath=dataPath,\
+                    events_to_eliminate = events_to_eliminate,\
+                    elimin_begin= elimin_begin)))
         else:
-            D =               individual_drrd(prefix, animalID, session, plotFlag=False, dataPath=dataPath, events_to_eliminate = events_to_eliminate)
+            D = individual_drrd(prefix, animalID, session, plotFlag=False,\
+                    dataPath=dataPath, events_to_eliminate = events_to_eliminate,\
+                    data= data, elimin_begin= elimin_begin)
 
     if plotFlag:
         plotDrrd(D, title_label='Rat:' + str(animalID) + ' Sess:' + str(sessions))
@@ -819,10 +832,17 @@ def separate_gaussians(x, params, number):
     return res
 
 
-def double_gaussian(x, gamma, mu1, sigma1, mu2, sigma2):
+def double_gaussian(x, gamma, mu1, sigma1, mu2, sigma2, use_abs= False):
+
     dt = np.unique(np.round(np.diff(x), 4))  # getting the value of dt as difference between x steps
-    res = (1 - gamma) * np.exp(- (x - np.abs(mu1)) ** 2.0 / (2.0 * sigma1 ** 2.0)) \
-          + gamma * np.exp(- (x - np.abs(mu2)) ** 2.0 / (2.0 * sigma2 ** 2.0))
+    
+    if use_abs:
+        res = (1 - gamma) * np.exp(- (x - np.abs(mu1)) ** 2.0 / (2.0 * sigma1 ** 2.0)) \
+              + gamma * np.exp(- (x - np.abs(mu2)) ** 2.0 / (2.0 * sigma2 ** 2.0))
+    else:
+        res = (1 - gamma) * np.exp(- (x - mu1) ** 2.0 / (2.0 * sigma1 ** 2.0)) \
+              + gamma * np.exp(- (x - mu2) ** 2.0 / (2.0 * sigma2 ** 2.0))
+
     return (res / np.sum(res) / dt)
 
 
@@ -1011,6 +1031,43 @@ def fit_single_animal_from_matrix(D, y, animal, session, plotFlag=True, indexes=
 
     # That'it. Let's return the values and get out of here
     return (r)
+
+def fit_single_animal_from_matrix2(bins, counts, plotFlag=True,
+                                   indexes=(0, None), ax=None,
+                                   dataPath=homePath,
+                                   initParsDoubleGauss=(0.5, 0.2, 0.1, 1, 0.5),
+                                   boundsDoubleGauss=(0, [1, 5, 5, 10, 10]),
+                                   xlimits=[-dt / 2, 3]):
+    # get data from file: 
+    # counts is the probabilty density with bins defined by bins
+    # D is the data from the session obtained from drrdTools.drrd() method
+
+    # fit single gaussian
+    # popt_sngl, pcov_sngl = curve_fit(single_gaussian, bins, counts, bounds=(0, [10, 10]), p0=[1, 0.5])
+    # d_sngl = calculate_distance(bins, counts, popt_sngl, model='single')
+
+    # fit the double gaussian
+    #initParsDouble = (0.5, 0.2, 0.1, 1, 0.5)
+    popt, pcov = curve_fit(double_gaussian, bins, counts, bounds=boundsDoubleGauss, p0=initParsDoubleGauss)
+
+    popt = fix_parameters_order(popt)
+
+    # d = calculate_distance(bins, counts, popt, model='double')
+
+    # bundling all values to return them together
+    # r = np.concatenate((popt, [d], popt_sngl, [d_sngl]))
+
+    # drawing all curves into the graph
+    # if plotFlag:
+        # plot_all_curves(xfine, popt, popt_sngl, xlimits=xlimits)
+    #       add_info_to_graph(animal,session,r)
+    #
+
+    # That'it. Let's return the values and get out of here
+    return (popt)
+
+
+
 
 
 def add_info_to_graph(rat, session, rr, addSingleInfo=False):
