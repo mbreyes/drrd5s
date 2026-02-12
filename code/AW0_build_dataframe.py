@@ -15,16 +15,15 @@ import matplotlib.pyplot as plt
 plt.style.use('ggplot')
 sns.set(style='ticks')
 
-PREFIX = 'AW0'
+PREFIX = 'AZ1'
 DATA_PATH = '../data/raw/'+PREFIX+'/'
 OUTPUT_PATH = '../../../output/temp/'
 
-rats_g1 = [39,43,47] # grupo linear
-rats_g2 = [40,44,48] # grupo exp 10% 
-rats_g3 = [41,45,49] # grupo exp 20% 
-rats_g4 = [42,46,50] # grupo percentile 
+rats_g1 = [87,90] # grupo linear
+rats_g2 = [88,91] # grupo exp 10% 
+rats_g3 = [89,92] # grupo exp 20% 
 
-rats = rats_g1 + rats_g2 + rats_g3 + rats_g4
+rats = rats_g1 + rats_g2 + rats_g3
 
 LAST_SESSION = 1
 ALL_SESSIONS = np.arange(1,LAST_SESSION+1)
@@ -32,13 +31,11 @@ ALL_SESSIONS = np.arange(1,LAST_SESSION+1)
 
 def which_group(rat):
     if rat in rats_g1:
-        return 'linear'
+        return 'timeout'
     elif rat in rats_g2:
-        return 'exp10'
+        return 'no_timeout_retract'
     elif rat in rats_g3:
-        return 'exp20'
-    elif rat in rats_g4:
-        return 'perc'
+        return 'no_timeout'
     else:
         return None
 
@@ -47,11 +44,15 @@ frac_above_5s = []
 all_data = []
 
 
-for rat in [41,42]: 
+for rat in rats: 
     for session in ALL_SESSIONS:
         print(rat, session, which_group(rat))
-        D = dr.drrd(prefix= 'AW', animalID=rat, sessions=[session],
-                    dataPath=DATA_PATH, plotFlag=True, events_to_eliminate=(5,9))
+        D = dr.drrd(prefix= PREFIX, 
+                    animalID=rat, 
+                    sessions=[session],
+                    dataPath=DATA_PATH, plotFlag=True,
+                    elimin_begin= False,
+                    events_to_eliminate=(5,9))
         
         frac_above_5s.append( [rat, which_group(rat), session,\
                                len(D[D[:,0]>5]) / len(D), len(D) ] )
@@ -67,8 +68,8 @@ for rat in [41,42]:
                                              'valid','criterion','session'])
             thisD.loc[:,'rat'] = rat
             thisD.loc[:,'group'] = which_group(rat)
-            all_data = pd.concat((all_data,thisD))
+            all_data = pd.concat((all_data,thisD), ignore_index= True)
 
 df = all_data[['rat', 'group', 'session','duration', 'iti', 'reinforced', 'criterion' ]]
-df.to_csv('../data/processed/AU0_tentative.csv', index=False)
+df.to_csv('../data/processed/'+ PREFIX + '_tentative.csv', index=False)
 

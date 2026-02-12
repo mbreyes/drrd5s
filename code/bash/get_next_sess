@@ -4,8 +4,8 @@ fname=$1
 
 fname=$(basename $(ls $fname.* | sort -rn | head -n 1))
 
-session=$(get_sess_pad $fname)
+session=$(./get_sess_pad $fname)
 
-next_sess=$(add_one_padded $session)
+next_sess=$(./add_one_padded $session)
 
 echo $next_sess

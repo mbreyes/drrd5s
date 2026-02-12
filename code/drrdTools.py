@@ -144,7 +144,7 @@ def plotDrrd(D, title_label='Title_Label'):
 
     # --- Plotting the response distributions ---
     xmin = 0
-    xmax = 20
+    xmax = 4
     # xma = np.round(np.mean(D[:,0])+4*np.std(D[:,0]))
     Nx_grid = 100
     x_grid = np.linspace(xmin, xmax, Nx_grid)
@@ -1066,6 +1066,31 @@ def fit_single_animal_from_matrix2(bins, counts, plotFlag=True,
     # That'it. Let's return the values and get out of here
     return (popt)
 
+def fit_single_animal_from_matrix3(durations, bins = None, plotFlag=True,
+                                   ax=None, dataPath=homePath,
+                                   initParsDoubleGauss=(0.5, 0.2, 0.1, 1, 0.5),
+                                   boundsDoubleGauss=(0, [1, 5, 5, 10, 10]),
+                                   xlimits=[-dt / 2, 3]):
+   
+    # fit the double gaussian
+    #initParsDouble = (0.5, 0.2, 0.1, 1, 0.5)
+    popt, pcov = curve_fit(double_gaussian, bins, counts, bounds=boundsDoubleGauss, p0=initParsDoubleGauss)
+
+    popt = fix_parameters_order(popt)
+
+    # d = calculate_distance(bins, counts, popt, model='double')
+
+    # bundling all values to return them together
+    # r = np.concatenate((popt, [d], popt_sngl, [d_sngl]))
+
+    # drawing all curves into the graph
+    # if plotFlag:
+        # plot_all_curves(xfine, popt, popt_sngl, xlimits=xlimits)
+    #       add_info_to_graph(animal,session,r)
+    #
+
+    # That'it. Let's return the values and get out of here
+    return (popt)
 
 
 

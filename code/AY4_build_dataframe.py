@@ -15,11 +15,11 @@ import matplotlib.pyplot as plt
 plt.style.use('ggplot')
 sns.set(style='ticks')
 
-PREFIX = 'AY4'
+PREFIX = 'ABB'
 DATA_PATH = '../data/raw/'+PREFIX+'/'
-OUTPUT_PATH = '../output/temp/'
+OUTPUT_PATH = '../data/processed/'
 ABOVE = 10 # in seconds
-LAST_SESSION = 5
+LAST_SESSION = 6
 
 rats_g1 = [63,64,65,66,68,71,72,74] # grupo 5s
 rats_g2 = [52,55,56,58,59,60,61,69] # grupo 10s

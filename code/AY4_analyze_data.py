@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import drrdTools as dr
 
+plt.rcParams['figure.dpi'] = 500
+
 # plt.style.use('ggplot')
 # sns.set(style='ticks')
 
@@ -168,102 +170,69 @@ def compare_group_kdes(df, log_scale=False, xlabel='Duration (s)', xlim=None, ti
     plt.savefig(OUTPUT_PATH+f'kde_{scale_name}.pdf')
     plt.show()
     
-def fit_double_gaussian(df, log_scale= True, title= None):    
+def fit_double_gaussian(df, log_scale= True, title= None, savefig= False):    
     
     if log_scale:
         bins = np.arange(-4,4,0.1)
         bins_fine = np.arange(-4,4,0.01)
         init_pars = (0.858, -4, 3.4, 2.45, 0.233)
-        bonds = ([0, -5, 0, 0, 0], [1, 5, 5, 20, 10])
-        
+        bonds = ([0, -5, 0, 0, 0], [1, 5, 5, 20, 10])    
     else:
         bins = np.arange(-1,25,2)
         bins_fine = np.arange(-1,25,0.01)
         init_pars = (0.5, 0, 0.5, 11, 10)
         bonds = ([0, 0, 0, 0, 0], [1, 3, 4, 15, 100])
-        
     # selecting variable to make histogram (x)
     x = x = df.duration
-    
     if log_scale:
         x = np.log(x)
-
     plt.figure(figsize=(4,3))
     counts = dr.calc_histogram(x, bins)
-
     popt = dr.fit_single_animal_from_matrix2(bins, counts,
                 initParsDoubleGauss= init_pars,
                 boundsDoubleGauss= bonds,
                 xlimits=[-4,4])
-    
     f = dr.double_gaussian(bins_fine, *popt)
     plt.plot(bins_fine,f,'k')
+    plt.title(title)
     
-    # plt.title(f'rat={rat}  session {session}')
+    if (title is not None) and (savefig):
+        plt.savefig(OUTPUT_PATH+title.replace(' ','_')+'.pdf')
+    
     plt.show()
+    return popt
 
-def fit_double_gaussian_old(df, log_scale= True):    
-    
-    if log_scale:
-        bins = np.arange(-4,4,0.1)
-        bins_fine = np.arange(-4,4,0.01)
-        init_pars = (0.858, -4, 3.4, 2.45, 0.233)
-        bonds = ([0, -5, 0, 0, 0], [1, 5, 5, 20, 10])
-        
-    else:
-        bins = np.arange(-1,25,2)
-        bins_fine = np.arange(-1,25,0.01)
-        init_pars = (0.5, 0, 0.5, 11, 10)
-        bonds = ([0, 0, 0, 0, 0], [1, 3, 4, 15, 100])
-        
-        
+def plot_individual_double_gaussian_fit(df):
+    # loop over all rats and sessions and show the double gaussian fit
+    popts = []
     for rat in df.rat.unique():
-        for session in range(1,6):
+        for session in df.query(f'rat=={rat}').session.unique():
+            thisdf = df.query(f'rat=={rat} and session=={session}')
+            popts.append(fit_double_gaussian(thisdf, title=f'AY4 rat {rat} session {session}'))
+    return popts
 
-            # selecting variable to make histogram (x)
-            x = x = df.query(f'rat=={rat} and session=={session}').duration
-            
-            if log_scale:
-                x = np.log(x)
-                
-            
-            plt.figure(figsize=(4,3))
-            counts = dr.calc_histogram(x, bins)
-            
-            popt = dr.fit_single_animal_from_matrix2(bins, counts,
-                        initParsDoubleGauss= init_pars,
-                        boundsDoubleGauss= bonds,
-                        xlimits=[-4,4])
-        
-            f = dr.double_gaussian(bins_fine, *popt)
-            plt.plot(bins_fine,f,'k')
-            
-            plt.title(f'rat={rat}  session {session}')
-            plt.show()
-
-def main():
-       
+def plot_evolution_double_gaussian_over_sessions(df):
     
+    for session in df.session.unique():
+        thisdf = df.query(f'session=={session}')
+        popt = fit_double_gaussian(thisdf, title=f'AY4 session {session}', savefig=True)
+        print(np.round(popt,2))
+        
+def main():
     # read dataframe from file
     df= pd.read_csv(DATA_PATH + f'{PREFIX}.csv')
-
     # checking differences between beginnind and end of each session
     early_versus_late(df)
-
     # check the duration for the entire session as a function of the sessions per group
     sns.lmplot(x='session',y='duration',hue='group', markers=['>','o'],\
                 data= df.groupby(by=['rat','session','group']).duration.mean().reset_index())
-
     # plot the fraction of reinforced trials
     sns.lmplot(x='session',y='reinforced',hue='group', markers=['>','o'],\
                 data= df.query('session>2').groupby(by=['rat','session','group']).reinforced.mean().reset_index())
-
     # plot the average long responses as a function of trials
     plot_average_long_responses(df, above_time= 5, above_sess= 1)
-    
     # plot variability of each rat for stable sessions
     check_individual_vabiability(df, above_sess= 1)
-    
     # check distribution of all responses
     check_response_distribution(df, log_scale=False, bins= np.arange(-1,20,0.25),
                                 xlim=[0,20])
@@ -274,7 +243,13 @@ def main():
     compare_group_kdes(df, log_scale=True, xlim= [-3,4])
     
     # fit double gaussian
-    fit_double_gaussian(df)    
+    fit_double_gaussian(df.query('session>1'), title='AY4 all rats all sessions')    
+    
+    # show individual double gaussian fit
+    # plot_individual_double_gaussian_fit(df)
+    
+    # check evolution of dg fit over sessions
+    plot_evolution_double_gaussian_over_sessions(df)
     
     return df
 
