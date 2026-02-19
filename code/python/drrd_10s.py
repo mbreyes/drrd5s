@@ -183,7 +183,7 @@ def check_response_distribution_per_group(df, bins= None, criterion= 10, log_sca
         xlabel = 'duration (s)'
         scale_name = 'linear'
         
-    plt.hist(x,bins= bins);
+    plt.hist(x,bins= bins)
     plt.axvline(criterion, **{'color':'k', 'linestyle':'--','lw':0.5})
     plt.xticks(ticks, labels=lbls)
     plt.xlabel(xlabel)

@@ -119,17 +119,24 @@ drrd.compare_group_kdes(df_last_sessions, xlim=(-1,20))
 
 #-------- FIT DOUBLE GAUSSIAN TO LOG OF DURATION DISTRIBUTION ---------
 
-# PER GROUPS
+# BY GROUP EARLY AND LATE SESSIONS
+
 for group in df.group.unique():
     df_group = df.query('group == @group and session >= 16').reset_index(drop=True)
     drrd.fit_double_gaussian(df_group,title=f'Double Gaussian Fit - Group {group}')
-    drrd.check_response_distribution_per_group(df_group, group = group)
-
-
+    df_group = df.query('group == @group and session <= 3').reset_index(drop=True)
+    drrd.fit_double_gaussian(df_group,title=f'Double Gaussian Fit - Group {group}')
+    
 
 #---------- CHECK RESPONSE DISTIRBUTION PER GROUP ------------
 
+# BY GROUP EARLY AND LATE SESSIONS
 
+for group in df.group.unique():
+    df_group = df.query('group == @group and session >= 16').reset_index(drop=True)
+    drrd.check_response_distribution_per_group(df_group, group = group)
+    df_group = df.query('group == @group and session <= 3').reset_index(drop=True)
+    drrd.check_response_distribution_per_group(df_group, group = group)
 
 
 
