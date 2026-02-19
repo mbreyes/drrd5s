@@ -25,7 +25,7 @@ sns.set_context("paper")
 
 PREFIXES = ['AY1', 'AW1']
 DATA_PATH = os.path.realpath('../../data/processed/')+'/'
-OUTPUT_PATH = os.path.realpath('../../output/tmp/DRRD_10s/')+'/'
+OUTPUT_PATH = os.path.realpath('../../output/tmp/DRRD_10s_Groups/')+'/'
 LAST_SESSION = 19
 ANIMALS = range(39,75)
 PREFIX = 'DRRD_10s'
@@ -105,8 +105,35 @@ plt.show()
 plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Mean_of_trials_per_group.png'))
 
 
+# ------ COMPARE GROUPS KDE PLOTS -----
 
-def plot_over_sessions(data = df, var='duration_mean', \
+# FIRST 3 SESSIONS
+df = data.copy()
+df_first_sessions = df.query('session <= 3')
+drrd.compare_group_kdes(df_first_sessions, xlim=(-1,5))
+
+# LAST 5 SESSIONS
+df_last_sessions = df.query('session >= 15')
+drrd.compare_group_kdes(df_last_sessions, xlim=(-1,20))
+
+
+#-------- FIT DOUBLE GAUSSIAN TO LOG OF DURATION DISTRIBUTION ---------
+
+# PER GROUPS
+for group in df.group.unique():
+    df_group = df.query('group == @group and session >= 16').reset_index(drop=True)
+    drrd.fit_double_gaussian(df_group,title=f'Double Gaussian Fit - Group {group}')
+    drrd.check_response_distribution_per_group(df_group, group = group)
+
+
+
+#---------- CHECK RESPONSE DISTIRBUTION PER GROUP ------------
+
+
+
+
+
+def plot_over_sessions(data = df_last_sessions, var='duration_mean', \
                        hue = 'group', gtypes=['bar','lm', 'box', 'point']):
     
     for gtype in gtypes:
@@ -138,28 +165,6 @@ def plot_over_sessions(data = df, var='duration_mean', \
         
     return
 
-def compare_group_kdes(df, log_scale=False, xlabel='Duration (s)', session='beginning', xlim=None, title='KDE of duration by group'):
-    plt.figure(figsize=(4,3))
-    if log_scale:
-        df = df.copy()
-        df['log_duration'] = np.log(df['duration'])
-        x_var = 'log_duration'
-        xlabel = 'Log(Duration (s))'
-        scale_name = 'log'
-    else:
-        x_var = 'duration'
-        scale_name= 'linear'
-
-    sns.kdeplot(data=df, x=x_var, hue='group', common_norm=False)
-    plt.title(title)
-    plt.xlabel(xlabel)
-    plt.ylabel('Density')
-    if xlim is not None:
-        plt.xlim(xlim)
-    
-    plt.tight_layout()
-    plt.savefig(OUTPUT_PATH+f'kde_{scale_name}_{session}.png', dpi=500)
-    plt.show()
 
 def anova_rm(df):
     
@@ -204,14 +209,6 @@ plt.savefig(OUTPUT_PATH+'kde_linear_begin_end.png', dpi=500)
 plt.show()
 
 
-#for var in columns:
-    
- #   plot_over_sessions(var = var, data = df, hue = 'group', 
-  #                     gtypes = ['bar','lm', 'box', 'point'])
-    
-
-#plot_over_sessions(var = 'Mean Duration Above 5', data = df_mean_above_5, hue = 'group', \
-                  # gtypes = ['bar','lm', 'box', 'point'])
 
 
 aov = pg.mixed_anova(dv="session", within="criterion", between="group", subject="rat", data=df_sessions)
