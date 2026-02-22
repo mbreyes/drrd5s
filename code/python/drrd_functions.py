@@ -15,6 +15,7 @@ import numpy as np
 import drrdTools as dr
 from scipy.stats import pearsonr
 import os
+import code.python.drrd_functions as drrd_functions
 
 plt.rcParams['figure.dpi'] = 500
 
@@ -99,7 +100,7 @@ def plot_average_long_responses(df, above_time= 5, above_sess= 1):
     dfabove = df.query(f'duration>{above_time} and session>{above_sess}').groupby(['rat','session','group']).duration.mean().reset_index()
 
     plt.figure(figsize=(4,3))
-    sns.boxplot(x='session',y= 'duration', hue= 'group', hue_order=('linear','exp20','exp10', 'perc'), data= dfabove)
+    sns.boxplot(x='session',y= 'duration', hue= 'group', hue_order = dfabove.group.unique(), data= dfabove)
     
     plt.ylabel('duration (s)')
     plt.title(f'Mean duration of responses above {above_time}s')
@@ -196,7 +197,7 @@ def check_response_distribution_per_group(df, bins= None, criterion= 10, log_sca
     plt.tight_layout()
     plt.savefig(OUTPUT_PATH+f'response_distribution_{scale_name}_group_{group}.pdf')    
 
-def compare_group_kdes(df, log_scale=False, xlabel='Duration (s)', xlim=None, title='KDE of duration by group'):
+def compare_group_kdes(df, log_scale=False, xlabel='Duration (s)', xlim=None, session=None, title='KDE of duration by group'):
     plt.figure(figsize=(4,3))
     if log_scale:
         df = df.copy()
@@ -216,7 +217,7 @@ def compare_group_kdes(df, log_scale=False, xlabel='Duration (s)', xlim=None, ti
         plt.xlim(xlim)
     
     plt.tight_layout()
-    plt.savefig(OUTPUT_PATH+f'kde_{scale_name}.png')
+    plt.savefig(OUTPUT_PATH+f'kde_{scale_name}_{session}.png')
     plt.show()
     
 def fit_double_gaussian(df, log_scale= True, title= None, savefig= False):    

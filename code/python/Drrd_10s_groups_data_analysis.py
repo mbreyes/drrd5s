@@ -10,7 +10,7 @@ Created on Mon Jan 29 13:43:12 2024
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import drrd_10s as drrd
+import code.python.drrd as drrd
 import matplotlib.pyplot as plt
 import os
 import pingouin as pg
@@ -37,17 +37,12 @@ df = None
 
 for prefix in PREFIXES:
     if df is None:
-        df = pd.read_csv(DATA_PATH +f'{prefix}_tentative.csv')
+        df = pd.read_csv(DATA_PATH +f'{prefix}.csv')
     else:
-        data = pd.concat([df, pd.read_csv(DATA_PATH +f'{prefix}_tentative.csv')], ignore_index=True)
+        data = pd.concat([df, pd.read_csv(DATA_PATH +f'{prefix}.csv')], ignore_index=True)
 
 data = data.astype({'rat':int,'session':int,'reinforced':int})
 data = data.query('session <= 19')
-
-
-df_above_5 = data.query('duration > 5')
-df_mean_above_5 = df_above_5.groupby(['rat','session', 'group']).duration.mean().reset_index()
-df_mean_above_5.rename(columns = {'duration':'Mean Duration Above 5'}, inplace = True) 
 
 
 # ----- NUMBER OF SESSIONS TO REACH CRITERIA -----
@@ -123,9 +118,9 @@ drrd.compare_group_kdes(df_last_sessions, xlim=(-1,20))
 
 for group in df.group.unique():
     df_group = df.query('group == @group and session >= 16').reset_index(drop=True)
-    drrd.fit_double_gaussian(df_group,title=f'Double Gaussian Fit - Group {group}')
+    drrd.fit_double_gaussian(df_group,title=f'Late - Group {group}')
     df_group = df.query('group == @group and session <= 3').reset_index(drop=True)
-    drrd.fit_double_gaussian(df_group,title=f'Double Gaussian Fit - Group {group}')
+    drrd.fit_double_gaussian(df_group,title=f'Early - Group {group}')
     
 
 #---------- CHECK RESPONSE DISTIRBUTION PER GROUP ------------
@@ -135,42 +130,16 @@ for group in df.group.unique():
 for group in df.group.unique():
     df_group = df.query('group == @group and session >= 16').reset_index(drop=True)
     drrd.check_response_distribution_per_group(df_group, group = group)
+    drrd.check_response_distribution_per_group(df_group, group = group, log_scale=True)
     df_group = df.query('group == @group and session <= 3').reset_index(drop=True)
     drrd.check_response_distribution_per_group(df_group, group = group)
+    drrd.check_response_distribution_per_group(df_group, group = group, log_scale=True)
 
 
+#------------ AVERAGE DURATION PER GROUP AND SESSION -----------
 
-def plot_over_sessions(data = df_last_sessions, var='duration_mean', \
-                       hue = 'group', gtypes=['bar','lm', 'box', 'point']):
-    
-    for gtype in gtypes:
-              
-        if gtype == 'bar':
-            plt.figure()    
-            sns.barplot(x='session',y=var,hue=hue,data = data)    
-        
-        elif gtype == 'lm':
-            plt.figure()    
-            sns.lmplot(x='session',y=var,hue=hue,\
-                            markers=['>','o','+','<'], data= data)
-            
-        elif gtype == 'box':
-            plt.figure()    
-            sns.boxplot(x='session',y=var,hue=hue,data=data)
-            
-        elif gtype == 'point':
-            plt.figure()    
-            sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
-            sns.pointplot(x='session', y=var, hue=hue, data=data, dodge = 0.2 )
-               
-        else:
-            
-            print(f'Unknown type of graph ({gtype})')
-            
-        plt.ylabel(var)
-        plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_{gtype}plot_{var}_per_group.png'))
-        
-    return
+df = data.copy()
+drrd.plot_average_long_responses(df = df)
 
 
 def anova_rm(df):
@@ -214,14 +183,6 @@ plt.ylabel('Density')
 plt.tight_layout()
 plt.savefig(OUTPUT_PATH+'kde_linear_begin_end.png', dpi=500)
 plt.show()
-
-
-
-
-aov = pg.mixed_anova(dv="session", within="criterion", between="group", subject="rat", data=df_sessions)
-print("\nMixed ANOVA results:\n", aov)
-test = pg.pairwise_tests(dv='session', within = 'criterion', between = 'group', subject = 'rat', data = df_sessions)
-print("\n Pairwise tests results:\n", test)
 
 
 

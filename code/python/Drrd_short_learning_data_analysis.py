@@ -8,7 +8,7 @@ Created on Mon Jun 30 13:22:37 2025
 
 
 
-# import drrdTools as dr
+import drrdTools as dr
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -17,101 +17,141 @@ import os
 import pingouin as pg
 from scipy.optimize import curve_fit
 from scipy.stats import shapiro
+import code.python.drrd_functions as drrd_functions
 
 
 
 plt.style.use('ggplot')
 sns.set(style='ticks')
 
-PREFIX = "AZ1 and BB1"
-PREFIXES = ['AZ1', 'BB1']
+PREFIXES = ['AAZ1','AZ1','BB1']
 DATA_PATH = os.path.realpath('../../data/processed/')+'/'
-OUTPUT_PATH = os.path.realpath('../../output/tmp/AZ+BB/AZ1+BB1/')+'/'
+OUTPUT_PATH = os.path.realpath('../../output/tmp/DRRD_Short_Learning/')+'/'
 ANIMALS = list(range(87,93)) + list(range(105,117))
 LAST_SESSION = 2
-list_data = []
+PREFIX = 'DRRD_Short'
 
-GROUPS = ['no_timeout','retract','random']
-# Defining functions to plot graphs
-for prefix in PREFIXES:
-     
-    data    = pd.read_csv(DATA_PATH +f'{prefix}.csv')
-    data    = data.astype({'rat':int,'session':int,'reinforced':int, 'group':str})
-    list_data.append(data)
+#---- LOADING DATA ----
+df = None
 
-data_all = pd.concat(list_data, ignore_index = True)
-df = data_all.copy()
-df = df.groupby(['rat', 'session', 'group'], group_keys = True)\
-            .apply(lambda x : pd.Series(dict(nresps = (x.duration).count(),  
-                        frac_correct = ((x.reinforced).sum()/(x.duration).count()), \
-                        duration_mean = (x.duration).mean(), 
-                        last_criterion = (x.criterion).max()))).reset_index()
-                
-df.rename(columns = {'duration_mean': 'Mean Duration', \
-                         'last_criterion':'Last Criterion'}, inplace = True) 
-              
-columns = ['Mean Duration'] 
+for prefix in ['AAZ1','AZ1']:
+    if df is None:
+        df = pd.read_csv(DATA_PATH +f'{prefix}.csv')
+    else:
+        data_a = pd.concat([df, pd.read_csv(DATA_PATH +f'{prefix}.csv')], ignore_index=True)
+        data_a['trial'] = data_a.groupby(['rat', 'session']).cumcount() + 1
+
+data_b = pd.read_csv(DATA_PATH +f'BB1.csv')
+data = pd.concat([data_a, data_b], ignore_index=True)
+data = data.astype({'rat':int,'session':int,'reinforced':int})
 
 
 
+# ----- NUMBER OF TRIALS TO REACH CRITERIA -----
 
-def plot_all_histograms(dt:float = 0.1, tmax:float = 5):
+df_total_trials = pd.DataFrame()
+
+for r in ANIMALS:
+
+    df = data.copy() 
+    df_rat = df.query('rat == @r')
+    df_rat['total_trials'] = range(1,df_rat['rat'].count()+1)
+    df_total_trials = pd.concat([df_total_trials, df_rat])
     
-    rng = np.arange(0,tmax+dt,step=dt)
+df_ = df_total_trials.query('criterion == [0.5,1.0,1.2]').groupby(['rat','group','criterion'])['total_trials'].first().reset_index()
+plt.figure()
+sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+sns.pointplot(x='criterion', y='total_trials', hue='group',data=df_)
+plt.xlabel("Criterion")
+plt.ylabel("Number of trials")
+plt.title('Mean of trials per group to achieve criteria')
+plt.show()
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Trials_per_group.png'))
 
-    for groups in GROUPS:
-        
-        for session in [1,2]:
-        
-            dfs = data.query(f'group=="{groups}" and session=={session}')
-            crit= dfs.criterion.max()
-        
-            plt.figure()
-            plt.hist(dfs.duration,bins=rng)
-            plt.axvline(dfs.duration.mean()+dfs.duration.std())
-            plt.axvline(np.percentile(dfs.duration,85), color='k', ls='--')
-            plt.axvline(crit, color='c', ls='-.')
-            plt.xlabel('time (s)')
-            plt.ylabel('number of responses')
-            plt.title(f'Histogram session {session} for group {groups}')
-    
-    return
 
-#plot_all_histograms()
-# Plotting main graphics giving a overview of group progression through sessions
+# ----- COMPARE BEGINNING OF SESSION 1 AND END OF SESSION 1 -----
+df = data.copy()
+df = df.query('session ==1 and duration < 7.5')
+min_trials = df.groupby(['rat']).max('trial').reset_index().loc[:, 'trial'].min()
+df_begin = df.query('trial <= 100')  
+df_begin['session'].replace(to_replace = 1, value = 'begin', inplace = True)
+df_end = df.query('trial < @min_trials')
+df_end = df_end.groupby(['rat', 'session']).tail(100)
+df_end['session'].replace(to_replace = 1, value ='end', inplace = True)
 
-def plot_over_sessions(data = df, var='duration_mean', \
-                       compl = "(s)", hue = 'group', gtypes=['bar','lm', 'box', 'point']):
-    
-    for gtype in gtypes:
-              
-        if gtype == 'bar':
-            plt.figure()    
-            sns.barplot(x='session',y=var,hue=hue,data = data)    
-        
-        elif gtype == 'lm':
-            plt.figure()    
-            sns.lmplot(x='session',y=var,hue=hue,\
-                            markers=['>','o','+'], data= data)
-            
-        elif gtype == 'box':
-            plt.figure()    
-            sns.boxplot(x='session',y=var,hue=hue,data=data)
-            
-        elif gtype == 'point':
-            plt.figure()    
-            sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
-            sns.pointplot(x='session', y=var, hue=hue, data=data, dodge = 0.2 )
-               
-        else:
-            
-            print(f'Unknown type of graph ({gtype})')
-            
-        plt.ylabel(var+compl)
-        plt.title(f'{var} per session')
-        plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_{gtype}plot_{var}_per_group.png'), dpi=500)
-        
-    return
+
+df_compare = pd.concat([df_begin, df_end]).reset_index()
+df_compare_mean = df_compare.groupby(['rat','session', 'group'], group_keys = True).duration.mean().reset_index()
+
+plt.figure()
+sns.barplot(x='session',y='duration',hue='group',data = df_compare_mean)
+plt.ylabel('Duration Mean (s)') 
+plt.xlabel('Session 1')
+plt.title('Duration Mean First Session')
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_barplot_comparing_session_1.png'))
+
+
+plt.figure()
+sns.boxplot(x='session',y='duration',hue='group',data = df_compare_mean)
+plt.ylabel('Duration (s)') 
+plt.xlabel('Session 1')
+plt.title('Duration First Session')
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_boxplot_comparing_session_1.png'))
+
+
+plt.figure()    
+sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+sns.pointplot(x='session', y='duration', hue='group', data=df_compare_mean, dodge = 0.2 )
+plt.ylabel('Duration (s)') 
+plt.xlabel('Session 1')
+plt.title('Duration First Session')
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_pointplot_comparing_session_1.png'))
+
+
+
+# ------ COMPARE BEGINNING OF SESSION 1, END OF SESSION 1 AND END OF SESSION 2 -----
+
+df_begin = data.query('session == 1 and  trial <= 100 and duration < 7.5')  
+df_begin['session'].replace(to_replace = 1, value = 'begin', inplace = True)
+df_compare_session = data.query('trial <= @min_trials and duration < 7.5')
+df_compare_session = df_compare_session.groupby(['rat', 'session']).tail(100)
+df_compare_session['session'].replace(to_replace = [1,2], value = ['end', 'session 2'], inplace = True)
+
+df_compare = pd.concat([df_begin, df_compare_session]).reset_index()
+
+df_compare_mean = df_compare.groupby(['rat','session', 'group'], group_keys = True).duration.mean().reset_index()
+
+
+plt.figure()
+sns.barplot(x='session',y='duration',hue='group',data = df_compare_mean)
+plt.ylabel('Duration (s)') 
+plt.xlabel('Session')
+plt.title('Trial Duration over Sessions')
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_barplot_comparing_sessions.png'))
+
+
+plt.figure()
+sns.boxplot(x='session',y='duration',hue='group',data = df_compare_mean)
+plt.ylabel('Duration (s)') 
+plt.xlabel('Session')
+plt.title('Trial Duration over Sessions')
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_boxplot_comparing_sessions.png'))
+
+
+plt.figure()    
+sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+sns.pointplot(x='session', y='duration', hue='group', data=df_compare_mean, dodge = 0.2 )
+plt.ylabel('Duration (s)') 
+plt.xlabel('Session')
+plt.title('Trial Duration over Sessions')
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_pointplot_comparing_sessions.png'))
+
+
+# ------ COMPARE GROUPS KDE PLOTS -----
+
+
+drrd_functions.compare_group_kdes(df= df_begin, title = 'KDE of duration at beginning session 1', xlim = 0, session ='beginning')
+drrd_functions.compare_group_kdes(df = df_end, title = 'KDE of duration at end session 1', xlim = 0, session = 'end')
 
 def compare_group_kdes(df, log_scale=False, xlabel='Duration (s)', session='beginning', xlim=None, title='KDE of duration by group'):
     plt.figure(figsize=(4,3))
@@ -137,12 +177,7 @@ def compare_group_kdes(df, log_scale=False, xlabel='Duration (s)', session='begi
     plt.show()
 
 
-for var in columns:
-    
-    plot_over_sessions(var = var, data = df, 
-                       gtypes = ['bar','lm', 'box', 'point'])
-
-       
+  
 
 # Graphics of Probability Density of duration_mean per group
 
