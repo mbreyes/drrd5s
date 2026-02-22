@@ -6,11 +6,11 @@ Created on Mon Jan 29 13:43:12 2024
 @author: mbreyes
 """
 
-# import drrdTools as dr
+import drrdTools as dr
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import code.python.drrd as drrd
+import drrd_functions as drrd
 import matplotlib.pyplot as plt
 import os
 import pingouin as pg

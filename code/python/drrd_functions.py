@@ -7,7 +7,7 @@ Created on Mon Jan 29 13:43:12 2024
 @author: mbreyes
 """
 
-# import drrdTools as dr
+import drrdTools as dr
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -15,7 +15,6 @@ import numpy as np
 import drrdTools as dr
 from scipy.stats import pearsonr
 import os
-import code.python.drrd_functions as drrd_functions
 
 plt.rcParams['figure.dpi'] = 500
 
@@ -197,19 +196,22 @@ def check_response_distribution_per_group(df, bins= None, criterion= 10, log_sca
     plt.tight_layout()
     plt.savefig(OUTPUT_PATH+f'response_distribution_{scale_name}_group_{group}.pdf')    
 
-def compare_group_kdes(df, log_scale=False, xlabel='Duration (s)', xlim=None, session=None, title='KDE of duration by group'):
+def compare_group_kdes(dfs=[df1, df2], log_scale=False, xlabel='Duration (s)', xlim=None, session=None, title='KDE of duration by group'):
+    
     plt.figure(figsize=(4,3))
-    if log_scale:
-        df = df.copy()
-        df['log_duration'] = np.log(df['duration'])
-        x_var = 'log_duration'
-        xlabel = 'Log(Duration (s))'
-        scale_name = 'log'
-    else:
-        x_var = 'duration'
-        scale_name= 'linear'
-
-    sns.kdeplot(data=df, x=x_var, hue='group', common_norm=False)
+    for df in dfs:
+        if log_scale:
+            df = df.copy()
+            df['log_duration'] = np.log(df['duration'])
+            x_var = 'log_duration'
+            xlabel = 'Log(Duration (s))'
+            scale_name = 'log'
+        else:
+            x_var = 'duration'
+            scale_name= 'linear'
+        
+        sns.kdeplot(data=df, x=x_var, hue='group', common_norm=False)
+        
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel('Density')

@@ -7,7 +7,6 @@ Created on Mon Jun 30 13:22:37 2025
 """
 
 
-
 import drrdTools as dr
 import numpy as np
 import pandas as pd
@@ -17,7 +16,7 @@ import os
 import pingouin as pg
 from scipy.optimize import curve_fit
 from scipy.stats import shapiro
-import code.python.drrd_functions as drrd_functions
+import drrd_functions as drrd
 
 
 
@@ -150,8 +149,8 @@ plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_pointplot_comparing_sessio
 # ------ COMPARE GROUPS KDE PLOTS -----
 
 
-drrd_functions.compare_group_kdes(df= df_begin, title = 'KDE of duration at beginning session 1', xlim = 0, session ='beginning')
-drrd_functions.compare_group_kdes(df = df_end, title = 'KDE of duration at end session 1', xlim = 0, session = 'end')
+drrd.compare_group_kdes(df= df_begin, title = 'KDE of duration at beginning session 1', xlim = 0, session ='beginning')
+drrd.compare_group_kdes(df = data.query('session == 2 and duration < 4'), title = 'KDE of duration at end session 1', xlim = 0, session = 'end')
 
 def compare_group_kdes(df, log_scale=False, xlabel='Duration (s)', session='beginning', xlim=None, title='KDE of duration by group'):
     plt.figure(figsize=(4,3))
