@@ -196,21 +196,21 @@ def check_response_distribution_per_group(df, bins= None, criterion= 10, log_sca
     plt.tight_layout()
     plt.savefig(OUTPUT_PATH+f'response_distribution_{scale_name}_group_{group}.pdf')    
 
-def compare_group_kdes(dfs=[df1, df2], log_scale=False, xlabel='Duration (s)', xlim=None, session=None, title='KDE of duration by group'):
+def compare_group_kdes(df, log_scale=False, xlabel='Duration (s)', xlim=None, session=None, title='KDE of duration by group'):
     
     plt.figure(figsize=(4,3))
-    for df in dfs:
-        if log_scale:
-            df = df.copy()
-            df['log_duration'] = np.log(df['duration'])
-            x_var = 'log_duration'
-            xlabel = 'Log(Duration (s))'
-            scale_name = 'log'
-        else:
-            x_var = 'duration'
-            scale_name= 'linear'
+    
+    if log_scale:
+        df = df.copy()
+        df['log_duration'] = np.log(df['duration'])
+        x_var = 'log_duration'
+        xlabel = 'Log(Duration (s))'
+        scale_name = 'log'
+    else:
+        x_var = 'duration'
+        scale_name= 'linear'
         
-        sns.kdeplot(data=df, x=x_var, hue='group', common_norm=False)
+    sns.kdeplot(data=df, x=x_var, hue='group', common_norm=False)
         
     plt.title(title)
     plt.xlabel(xlabel)
@@ -288,7 +288,8 @@ def main():
         list_data.append(data)
         
     df_all = pd.concat(list_data)
-    df = df_all.query('session>=15 and session <= 19')
+    df = df_all.query(' 15 <= session <= 19')
+
     # checking differences between beginning and end of each session
     mean_for_each_stage(df)
     # plot the average long responses as a function of trials
@@ -326,8 +327,7 @@ def main():
     compare_group_kdes(df, log_scale=True, xlim= [-3,4])
     
     # fit double gaussian
-    fit_double_gaussian(df.query('session=> 17'), title=f'{PREFIX} all rats all sessions')   
-    
+    fit_double_gaussian(df.query('session>= 17'), title=f'{PREFIX} all rats all sessions')   
     
     df = df.reset_index()
     plot_individual_double_gaussian_fit(df)
