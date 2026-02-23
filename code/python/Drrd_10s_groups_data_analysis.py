@@ -46,6 +46,7 @@ data = data.query('session <= 19')
 
 
 # ----- NUMBER OF SESSIONS TO REACH CRITERIA -----
+
 dfs = data.copy()
 dfs['criterion'] = dfs['criterion'].round()
 df_sessions = dfs.query('criterion == [2,5,8,10]').groupby(['rat','group','session']).criterion.first().reset_index()
@@ -123,16 +124,14 @@ for group in df.group.unique():
     drrd.fit_double_gaussian(df_group,title=f'Early - Group {group}')
     
 
-#---------- CHECK RESPONSE DISTIRBUTION PER GROUP ------------
+#---------- CHECK RESPONSE DISTRIBUTION PER GROUP ------------
 
 # BY GROUP EARLY AND LATE SESSIONS
 
 for group in df.group.unique():
     df_group = df.query('group == @group and session >= 16').reset_index(drop=True)
-    drrd.check_response_distribution_per_group(df_group, group = group)
     drrd.check_response_distribution_per_group(df_group, group = group, log_scale=True)
     df_group = df.query('group == @group and session <= 3').reset_index(drop=True)
-    drrd.check_response_distribution_per_group(df_group, group = group)
     drrd.check_response_distribution_per_group(df_group, group = group, log_scale=True)
 
 
@@ -186,50 +185,10 @@ plt.show()
 
 
 
-# Graphics of Probability Density of duration_mean per group
-
-df_above = data[data['duration'] > 5]
-plt.figure()
-sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
-sns.kdeplot(data[data.session ==1], x = "duration", hue = "group", fill=True, 
-            common_norm=False, common_grid = True, alpha=.5, linewidth=0)
-plt.xlabel("Time Average (s)")
-plt.ylabel("Probability Density")
-plt.title("Density Probability First Session")
-plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_density_first_session.png'))
- 
-plt.figure()
-sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
-sns.kdeplot(df_above[df_above.session ==LAST_SESSION], x= "duration", hue ="group", fill=True, 
-            common_norm=False, common_grid = True, alpha=.5, linewidth=0)
-plt.xlabel("Time Average (s)")
-plt.ylabel("Probability Density")
-plt.title("Density Probability Last Session")
-plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_density_last_session.png'))
-
-plt.figure()
-sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
-sns.kdeplot(data[data.session ==LAST_SESSION], x= "duration", hue ="group", fill=True, 
-            common_norm=False, common_grid = True, alpha=.5, linewidth=0)
-plt.xlabel("Time Average (s)")
-plt.ylabel("Probability Density")
-plt.title("Density Probability Last Session")
-plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_density_last_session.png'))
-
-
-
-
-
-
 aov = pg.mixed_anova(dv="total_trials", within="criterion", between="group", subject="rat", data=df_)
 print("\nMixed ANOVA results:\n", aov)
 test = pg.pairwise_tests(dv='total_trials', within = 'criterion', between = 'group', subject = 'rat', data = df_)
 print("\n Pairwise tests results:\n", test)
-
-
-
-
-
 
 
 
@@ -248,24 +207,3 @@ def anova_ultima_sessao(data):
     
     return
 
-# Set of graphs of individual rats 
-
-plt.figure()
-g = sns.FacetGrid(df_, col="rat", col_wrap=6, height=3, hue = "session", palette = "GnBu_d")
-g.map(sns.scatterplot, "nresps", "reinforced")
-g.add_legend()
-plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_duration_mean_per_rat.png'))
-
-plt.figure()
-g = sns.FacetGrid(df, col = "rat", col_wrap=6, height=3)
-g.map(sns.scatterplot, "session", "Last Criterion")
-plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_criterion_progression.png'))
-
-
-
-#for animal in ANIMALS:
-#       plt.figure()
-#      sns.scatterplot(df[df.rat == animal], y="last_criterion", x="frac_above_5",\
-#                        hue="session", palette = "GnBu_d")
-#       plt.title(f"Tempo médio das respostas - rato {animal}")
-       

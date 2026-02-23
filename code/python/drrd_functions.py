@@ -65,6 +65,19 @@ def classify_stage(x:int, early_cutoff= 33, late_cutoff= 66):
 
     return(classes)
 
+def early_versus_late(df):
+    
+    f,ax = plt.subplots(1,1,figsize=(4,3))
+    # add a stage column to identify as early or late in training
+    df.loc[:,'stage'] = classify_stage(df.trial)
+
+    sns.boxplot(x='session',y='duration',hue= 'stage', hue_order= ['early','late'],
+        data=df.groupby(['rat','session','group','stage'])\
+               .duration.mean().reset_index())
+    plt.ylabel('duration (s)')
+    plt.title('Average response duration early and late in each session')
+    plt.tight_layout()
+    plt.savefig(OUTPUT_PATH+'early_vs_late.png')
 
 def mean_for_each_stage(df):
     
@@ -111,11 +124,10 @@ def check_individual_variability(df, above_time= 5, above_sess= 1):
     
     # selecting only responses above a certain time
     dfabove = df.query(f'duration>{above_time} and session>{above_sess}').groupby(['rat','session','group']).duration.mean().reset_index()
-
-    plt.figure()
-    sns.boxplot(x='rat',y= 'duration', hue= 'group', hue_order=('5s','10s', '20s'),
-                data= dfabove.groupby(['rat','session','group']).duration.mean().reset_index())
     
+    plt.figure()
+    sns.boxplot(x='rat',y= 'duration', hue= 'group', hue_order = dfabove.group.unique(), data= dfabove)
+                
     plt.ylabel('duration (s)')
     plt.title(f'Individual duration of responses above {above_time}s')
 
@@ -269,8 +281,7 @@ def plot_evolution_double_gaussian_over_sessions(df):
         thisdf = df.query(f'session=={session}')
         popt = fit_double_gaussian(thisdf, title=f'{PREFIX} session {session}', savefig=True)
         print(np.round(popt,2))
-        
-    
+         
     
 def plot_individual_double_gaussian_fit_sessions(df):
     # loop over all rats and sessions and show the double gaussian fit
@@ -280,6 +291,56 @@ def plot_individual_double_gaussian_fit_sessions(df):
             thisdf = df.query(f"rat=={rat} and group=='{gr}'")
             popts.append(fit_double_gaussian(thisdf, title=f'{PREFIX} rat {rat} - group {gr}'))
     return popts    
+
+def correlation_in_long_resopnses_old(df):
+    
+    dfaux = df.query('duration>5').groupby(['rat','group','session']).duration.mean().reset_index().copy()
+    dfaux2= dfaux.pivot_table(values='duration', index= ['rat','session'],columns='group').reset_index()
+    sns.pairplot(dfaux2[['5s','10s', '20s']])
+    np.corrcoef(dfaux2['5s'],dfaux2['10s'], dfaux['20s'])
+    corr, p_value = pearsonr(dfaux2['5s'],dfaux2['10s'], dfaux['20s'])
+    print(f'correlation coef: {corr}')
+    print(f'p_value: {p_value}')
+
+def correlation_in_long_responses(df, thres= 5):
+    
+    dfaux = df.query(f'duration>{thres}').groupby(['rat','group','session'])\
+        .duration.mean().reset_index().copy()
+    dfaux2= dfaux.pivot_table(values='duration', index= ['rat','session'],\
+                              columns='group').reset_index()
+    dfaux2.columns= ['rat', 'session', 'y', 'x']
+    
+    sns.lmplot(data= dfaux2, x='x',y= 'y')
+    plt.plot([9,15],[9,15], 'k--', alpha= 0.2)
+    plt.xlabel('mean duration with 5s timeout (s)')
+    plt.ylabel('mean duration with 10s timeout (s)')
+
+    np.corrcoef(dfaux2['x'],dfaux2['y'])
+    corr, p_value = pearsonr(dfaux2['x'],dfaux2['y'])
+    
+    print(f'correlation coef: {corr}')
+    print(f'p_value: {p_value}')
+
+    plt.savefig(OUTPUT_PATH + 'correlation.png')
+
+def plot_individual_double_gaussian_fit_sessions(df):
+    # loop over all rats and sessions and show the double gaussian fit
+    popts = []
+    for rat in df.rat.unique():
+        for gr in df.query(f"rat == {rat}").group.unique():
+            thisdf = df.query(f"rat=={rat} and group=='{gr}'")
+            popts.append(fit_double_gaussian(thisdf, title=f'{PREFIX} rat {rat} - group {gr}'))
+    return popts  
+
+def plot_individual_double_gaussian_fit_sessions(df):
+    # loop over all rats and sessions and show the double gaussian fit
+    popts = []
+    for rat in df.rat.unique():
+        for gr in df.query(f"rat == {rat}").group.unique():
+            thisdf = df.query(f"rat=={rat} and group=='{gr}'")
+            popts.append(fit_double_gaussian(thisdf, title=f'{PREFIX} rat {rat} - group {gr}'))
+    return popts  
+
 
 def main():
     # read dataframe from file
