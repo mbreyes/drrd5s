@@ -12,28 +12,22 @@ import datetime
 import os
 
 # first day the rat was trained
-FIRST_DAY = datetime.date(2025,6,17)
+FIRST_DAY = datetime.date(2026,3,19)
 
 # number of day in the graph
 N_DAYS = 60
 
 
-R105= [315,300,305,300,295,285]
-R106= [380,360,360,360,355,340]
-R107= [355,340,340,340,335,320]
-R108= [390,370,370,365,355,345]
-R109= [395,375,375,375,365,355]
-R110= [380,360,360,360,355,345]
-R111= [375,355,350,350,340,325] 
-R112= [380,360,360,360,350,335] 
-R113= [425,405,400,400,390,375] 
-R114= [385,360,360,355,350,340]
-R115= [385,370,370,365,360,345]
-R116= [370,345,345,350,340,330]
+R117= [345,340,330,330]
+R118= [340,340,330,325]
+R119= [330,330,325,320]
+R120= [335,330,325,320]
+R121= [315,310,305,305]
+R122= [330,330,325,320]
 
 
 # all rats
-ALL_RATS = [R105,R106,R107,R108,R109,R110,R111,R112,R113,R114,R115,R116]
+ALL_RATS = [R117,R118,R119,R120,R121,R122]
 
 # range of weights to plot
 #MIN_WEIGHT = 290
@@ -109,7 +103,7 @@ def build_graph(data, rat, N_DAYS, MIN_WEIGHT, should_save= False):
 for rat,data in enumerate(ALL_RATS):
     MIN_WEIGHT = round(data[0]*.80/5)*5
     MAX_WEIGHT = round((data[0]+8)/5)*5
-    build_graph(data, rat+105, N_DAYS, MIN_WEIGHT, should_save=True)
+    build_graph(data, rat+117, N_DAYS, MIN_WEIGHT, should_save=True)
     
     
     
