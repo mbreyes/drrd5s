@@ -234,8 +234,7 @@ def compare_group_kdes(df, log_scale=False, xlabel='Duration (s)', xlim=None, se
     plt.savefig(OUTPUT_PATH+f'kde_{scale_name}_{session}.png')
     plt.show()
     
-def fit_double_gaussian(df, log_scale= True, title= None, savefig= False, \
-                        bins= np.arange(-1,20,0.1), bins_fine= np.arange(-1,20,0.01)):    
+def fit_double_gaussian(df, log_scale= True, title= None, savefig= False):    
     
     if log_scale:
         bins = np.arange(-4,4,0.1)
@@ -243,8 +242,8 @@ def fit_double_gaussian(df, log_scale= True, title= None, savefig= False, \
         init_pars = (0.858, -4, 3.4, 2.45, 0.233)
         bonds = ([0, -5, 0, 0, 0], [1, 5, 5, 20, 10])    
     else:
-        bins = bins
-        bins_fine = bins_fine
+        bins = np.arange(-1,20,0.1)
+        bins_fine = np.arange(-1,20,0.01)
         init_pars = (0.5, 0, 0.5, 11, 10)
         bonds = ([0, 0, 0, 0, 0], [1, 3, 4, 15, 100])
     # selecting variable to make histogram (x)

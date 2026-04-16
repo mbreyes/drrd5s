@@ -12,6 +12,7 @@ import drrdTools as dr
 import os
 import seaborn as sns
 import re
+import logging
 
 # --- General Settings ----
 homePath = os.path.realpath('../data/raw/pharmac_mPFC/') + '/'
@@ -1154,12 +1155,17 @@ def exp_dataframe(PREFIX:str, RATS:list, Data_Path:str, Output_Path:str, ALL_SES
 
             filename = PREFIX + str(rat).zfill(3) + '.' + str(session).zfill(3)
 
-            rat_group = group_name(Data_Path + filename)  # reads the group name from the file
+            
+            if not os.path.exists(Data_Path + filename):
+                print(f"Warning: '{Data_Path + filename}' not found. Skipping to the next file...")
+                continue
 
+            rat_group = group_name(Data_Path + filename)  # reads the group name from the file
+                 
             D = dr.drrd(prefix= PREFIX, animalID=rat, sessions=[session],
-                        dataPath=Data_Path, plotFlag=True, events_to_eliminate=(5,9))
-            
-            
+                                dataPath=Data_Path, plotFlag=True, events_to_eliminate=(5,9))
+                    
+                    
             if type(all_data) == list:
                 all_data = pd.DataFrame(D, columns= ['duration','iti','reinforced',\
                                                     'valid','criterion','session'])
@@ -1176,6 +1182,7 @@ def exp_dataframe(PREFIX:str, RATS:list, Data_Path:str, Output_Path:str, ALL_SES
                 
                 all_data = pd.concat((all_data,thisD))
 
+           
 
     df = all_data[['rat', 'group', 'session','trial','duration', 'iti', 'reinforced', 'criterion']]
     df = df.astype({'rat':int,'session':int,'reinforced':int})
@@ -1196,29 +1203,35 @@ def exp_dataframe_timeout(PREFIX:str, RATS:list, Data_Path:str, Output_Path:str,
             print(rat, session)
 
             filename = PREFIX + str(rat).zfill(3) + '.' + str(session).zfill(3)
+            try: 
+                with open(Data_Path + filename, 'r') as file:
 
-            rat_group = group_name(Data_Path + filename)  # reads the group name from the file
+                    rat_group = group_name(Data_Path + filename)  # reads the group name from the file
 
-            D = dr.drrd(prefix= PREFIX, animalID=rat, sessions=[session],
-                        dataPath=Data_Path, plotFlag=True, events_to_eliminate=(5,9))
-            
-            
-            if type(all_data) == list:
-                all_data = pd.DataFrame(D, columns= ['duration','iti','reinforced',\
-                                                    'valid','criterion','session'])
-                all_data.loc[:,'rat'] = rat
-                all_data.loc[:,'trial'] = np.arange(1,len(all_data)+1)
-                all_data.loc[:,'group'] = rat_group
+                    D = dr.drrd(prefix= PREFIX, animalID=rat, sessions=[session],
+                                dataPath=Data_Path, plotFlag=True, events_to_eliminate=(5,9))
+                    
+                    
+                    if type(all_data) == list:
+                        all_data = pd.DataFrame(D, columns= ['duration','iti','reinforced',\
+                                                            'valid','criterion','session'])
+                        all_data.loc[:,'rat'] = rat
+                        all_data.loc[:,'trial'] = np.arange(1,len(all_data)+1)
+                        all_data.loc[:,'group'] = rat_group
+                        
+                    else:
+                        thisD = pd.DataFrame(D, columns= ['duration','iti','reinforced',\
+                                                        'valid','criterion','session'])
+                        thisD.loc[:,'rat'] = rat
+                        thisD.loc[:,'trial'] = np.arange(1,len(thisD)+1)
+                        thisD.loc[:,'group'] = rat_group
+                        
+                        all_data = pd.concat((all_data,thisD))
+
+            except FileNotFoundError:
                 
-            else:
-                thisD = pd.DataFrame(D, columns= ['duration','iti','reinforced',\
-                                                'valid','criterion','session'])
-                thisD.loc[:,'rat'] = rat
-                thisD.loc[:,'trial'] = np.arange(1,len(thisD)+1)
-                thisD.loc[:,'group'] = rat_group
+                logging.warning(f"File not found: {Data_Path + filename}, skipping this session")
                 
-                all_data = pd.concat((all_data,thisD))
-    
 
     df = all_data.query('valid==1').copy()
     df_timeout = df[['rat', 'group', 'session','trial','duration', 'iti', 'reinforced', 'criterion']]

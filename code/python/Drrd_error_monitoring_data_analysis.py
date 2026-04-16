@@ -17,6 +17,7 @@ import os
 import pingouin as pg
 from scipy.optimize import curve_fit
 from scipy.stats import shapiro
+from fitter import Fitter, get_common_distributions, get_distributions
 
 plt.style.use('ggplot')
 plt.rcParams['figure.dpi'] = 500
@@ -24,7 +25,7 @@ plt.rcParams['figure.dpi'] = 500
 sns.set_palette(['#5B9E95', '#C5AA97'])
 sns.set_context("paper")
 
-PREFIXES = ['BD2']
+PREFIXES = ['BD2', 'BD3', 'BD4']
 DATA_PATH = os.path.realpath('../../data/processed/')+'/'
 OUTPUT_PATH = os.path.realpath('../../output/tmp/DRRD_Error_Monitoring/')+'/'
 LAST_SESSION = 4
@@ -33,46 +34,141 @@ PREFIX = 'DRRD_Error_Monitoring'
 
 #%%
 
+
+list_of_dfs = []
+for i in range(len(PREFIXES)):
+    list_of_dfs.append(None)
+
 #---- LOADING DATA ----
-data = None
+for i, prefix in enumerate(PREFIXES):
+    list_of_dfs[i] = pd.read_csv(DATA_PATH +f'{prefix}.csv')
+    list_of_dfs[i] = list_of_dfs[i].astype({'rat':int,'session':int,'reinforced':int})
 
-for prefix in PREFIXES:
-    if data is None:
-        data = pd.read_csv(DATA_PATH +f'{prefix}.csv')
+# ---- ANALYSING DATA FROM PHASE 1 - DRRD 2s  -----
 
-data = data.astype({'rat':int,'session':int,'reinforced':int})
-
-
+data_phase_1 = list_of_dfs[0].reset_index(drop=True)
 
 # ----- MEAN RESPONSE DURATION -----
 
-df_mean = data.groupby(['rat', 'session']).duration.mean().reset_index()
+df_mean = data_phase_1.groupby(['rat', 'session']).duration.mean().reset_index()
 plt.figure()    
 sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
 sns.pointplot(x='session', y='duration', hue='rat', data=df_mean)
 plt.xlabel('Session')
-plt.ylabel('Mean Response Duration')
-plt.title('Mean Response Duration per Session and Group')
+plt.ylabel('Mean Response Duration Phase 1')
+plt.title('DRRD 2s: Mean Response Duration per Session')
 plt.show()
-plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Mean_Response_Duration_per_rat.png'))
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Mean_Response_Duration_Phase_1.png'))
 
+
+# ------ % OF CORRECT RESPONSES -----
+
+df_correct = data_phase_1.groupby(['rat', 'session']).reinforced.sum().reset_index()
+df_tot = data_phase_1.groupby(['rat', 'session']).reinforced.count().reset_index()
+df_correct['correct'] = df_correct['reinforced'] / df_tot['reinforced']
+
+plt.figure()    
+sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+sns.pointplot(x='session', y='correct', hue='rat', data=df_correct)
+plt.xlabel('Session')
+plt.ylabel('Proportion of Correct Responses')
+plt.title('DRRD 2s: Proportion of Correct Responses per Session')
+plt.show()
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Proportion_Correct_Responses_Phase_1.png'))
+
+#%%
+# ----- ANALYSING DATA FROM PHASE 2 - DRRD 2s retract  -----
+
+data_phase_2 = list_of_dfs[1].reset_index(drop=True)
+
+# ----- MEAN RESPONSE DURATION -----
+
+df_mean = data_phase_2.groupby(['rat', 'session']).duration.mean().reset_index()
+plt.figure()    
+sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+sns.pointplot(x='session', y='duration', hue='rat', data=df_mean)
+plt.xlabel('Session')
+plt.ylabel('Mean Response Duration Phase 2')
+plt.title('DRRD 2s retract: Mean Response Duration per Session')
+plt.show()
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Mean_Response_Duration_Phase_2.png'))
+
+# ------ % OF CORRECT RESPONSES -----
+
+df_correct = data_phase_2.groupby(['rat', 'session']).reinforced.sum().reset_index()
+df_tot = data_phase_2.groupby(['rat', 'session']).reinforced.count().reset_index()
+df_correct['correct'] = df_correct['reinforced'] / df_tot['reinforced']
+plt.figure()    
+sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+sns.pointplot(x='session', y='correct', hue='rat', data=df_correct)
+plt.xlabel('Session')
+plt.ylabel('Proportion of Correct Responses')
+plt.title('DRRD 2s retract: Proportion of Correct Responses per Session')
+plt.show()
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Proportion_Correct_Responses_Phase_2.png'))
 #%%
 
 #-------- FIT DOUBLE GAUSSIAN TO LOG OF DURATION DISTRIBUTION ---------
 
 # BY GROUP EARLY AND LATE SESSIONS
 
-for rat in data.rat.unique():
-    df_rat = data.query('rat == @rat and session == 4').reset_index(drop=True)
-    drrd.check_response_distribution(df_rat,log_scale=False, criterion=2, bins = np.arange(-0.5,4.5,0.05),lbls=[0.025,0.05,0.75,1.0,1.5,2.0,2.5,3.0,5.0])
-
-#%%    
-
-#---------- CHECK RESPONSE DISTRIBUTION PER GROUP ------------
-
-for rat in data.rat.unique():
-    thisdf = data.query('rat == @rat').reset_index(drop=True)
-    drrd.fit_double_gaussian(thisdf,log_scale=False, bins = np.arange(-0.5,4.5,0.1),\
-                              bins_fine= np.arange(-0.5,4.5,0.01), title=f'{PREFIX} rat {rat}', savefig=True)
-
+for rat in data_phase_1.rat.unique():
+    plt.hist(data_phase_1.query(f'rat == {rat} and session == 1').duration, bins=100, density=True)
+    plt.hist(data_phase_1.query(f'rat == {rat} and session == {LAST_SESSION}').duration, bins=100, density=True, alpha=0.5)
+    plt.xlabel('Response Duration')
+    plt.ylabel('Density')
+    plt.title(f'Rat {rat}: Response Duration Distribution - Session 1 vs Session {LAST_SESSION}')
+    plt.legend(['Session 1', f'Session {LAST_SESSION}'])
+    plt.show()
+    #plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Duration_Distribution_Rat
+    
 # %%
+
+# BY GROUP EARLY AND LATE SESSIONS
+
+for rat in data_phase_1.rat.unique():
+    plt.hist(data_phase_2.query(f'rat == {rat} and session == 1').duration, bins=100, density=True, alpha=0.5)
+    plt.hist(data_phase_1.query(f'rat == {rat} and session == {LAST_SESSION}').duration, bins=80, density=True)
+    plt.xlabel('Response Duration')
+    plt.ylabel('Density')
+    plt.title(f'Rat {rat}: Response Duration Distribution - DRRD 2s vs DRRD retract')
+    plt.legend([f'Session {LAST_SESSION}', 'Session 1'])
+    plt.show()
+    #plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Duration_Distribution_Rat
+    
+# %%
+
+data_phase_3 = list_of_dfs[2].reset_index(drop = True)
+
+
+df_mean = data_phase_3.groupby(['session', 'rat']).duration.mean().reset_index()
+
+plt.figure()
+sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+sns.pointplot(x='session', y='duration', hue='rat', data=df_mean)
+plt.xlabel('Session')
+plt.ylabel('Duration Mean')
+plt.title('DRRD precision 3s: Duration mean per Session')
+plt.show()
+plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Proportion_Correct_Responses_Phase_2.png'))
+
+#%%
+
+for rat in data_phase_3.rat.unique():
+    sns.set_style('white')
+    sns.set_context("paper", font_scale = 2)
+    data = data_phase_3.query(f"rat == {rat} and session == 2").duration.reset_index()
+    sns.displot(data, x = 'duration', kind = 'hist', bins=80, aspect=1.5)
+    plt.xlabel('Duration (s)')
+    plt.ylabel('Count')
+    plt.title(f'Rat {rat} DRRD precision 3: Session 2')
+    
+    duration = data['duration'].values
+    f = Fitter(duration, distributions = ['gama', 'lognorm', 'beta', 'burr', 'norm'])
+    f.fit()
+    f.summary()
+    
+    
+# %%
+
+
