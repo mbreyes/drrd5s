@@ -16,6 +16,7 @@ import os
 import pingouin as pg
 from scipy.optimize import curve_fit
 from scipy.stats import shapiro
+import model_fitting as mf
 
 plt.style.use('ggplot')
 plt.rcParams['figure.dpi'] = 500
@@ -30,6 +31,13 @@ LAST_SESSION = 19
 ANIMALS = range(39,75)
 PREFIX = 'DRRD_10s'
 
+init_params = [
+    0.5,  # gamma
+    0.05,  # mu1
+    0.,  # sigma1
+    5.0,  # mu2
+    0.5   # sigma2
+]
 
 
 #---- LOADING DATA ----
@@ -112,16 +120,17 @@ drrd.compare_group_kdes(df_first_sessions, xlim=(-1,5))
 df_last_sessions = df.query('session >= 15')
 drrd.compare_group_kdes(df_last_sessions, xlim=(-1,20))
 
-
+#%%
 #-------- FIT DOUBLE GAUSSIAN TO LOG OF DURATION DISTRIBUTION ---------
 
 # BY GROUP EARLY AND LATE SESSIONS
-
+bin_width = 0.1
+init_params = [0.5, 2.0, 0.5, 8.0, 0.5]
 for group in df.group.unique():
     df_group = df.query('group == @group and session >= 16').reset_index(drop=True)
-    drrd.fit_double_gaussian(df_group,title=f'Late - Group {group}')
+    mf.plot_fitting_mle(df_group, session = 'last', init_params = init_params, subtitle=f'(MLE Fit) - Group {group} - Late Sessions', log = True, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH)
     df_group = df.query('group == @group and session <= 3').reset_index(drop=True)
-    drrd.fit_double_gaussian(df_group,title=f'Early - Group {group}')
+    mf.plot_fitting_mle(df_group, session = 'early', init_params = init_params, subtitle=f'(MLE Fit) - Group {group} - Early Sessions', log = True, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH)
     
 
 #---------- CHECK RESPONSE DISTRIBUTION PER GROUP ------------
