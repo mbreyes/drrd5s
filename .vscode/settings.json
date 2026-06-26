@@ -2,3 +2,22 @@
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda"
 }
+
+{
+  "python.terminal.activateEnvironment": false
+}
+
+{
+  "r.bracketedPaste": true,
+  "r.rterm.option": ["--no-save", "--no-restore"]
+}
+
+{
+  "terminal.integrated.shellIntegration.enabled": false
+}
+
+{
+  "r.rterm.mac": "/usr/local/bin/R",
+  "r.rpath.mac": "/usr/local/bin/R",
+  "r.plot.useHttpgd": true
+}

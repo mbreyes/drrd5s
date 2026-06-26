@@ -6,6 +6,7 @@
 """
 
 
+import math
 from unittest import result
 import pandas as pd
 import seaborn as sns
@@ -48,19 +49,32 @@ init_params = [
 ]
 
 
-def n_bins(data, bin_width):
-
-    """Calculate the number of bins for a histogram based on the data range and desired bin width."""
-    exact_bins = np.arange(np.min(data), np.max(data)+bin_width, bin_width)
-    return exact_bins
 
 
-def data_histogram(data, bin_width=0.05):
+def data_histogram(data, bin_width=bin_width, n_bins = 50, log = False):
 
-    bins = np.arange(np.min(data), np.max(data) + bin_width, bin_width)
-    counts, bin_edges = np.histogram(data, bins=bins, density=False)
-    hist_density = counts / (np.sum(counts) * bin_width)
-    bin_centers = bin_edges[:-1] + bin_width/ 2
+    """Calculate the histogram of the data with specified bin width and return bin centers and density."""
+   
+    data = np.asarray(data, dtype=float).flatten()
+
+    if log:
+
+        data = data[data > 0]  # Filter out non-positive values for log transformation  
+
+        log_data = np.log(data)
+        #bins_log = np.logspace(np.min(log_data), np.max(log_data), 50)
+        bins_log = np.linspace(np.min(log_data), np.max(log_data), n_bins)
+
+        counts, bin_edges = np.histogram(log_data, bins=bins_log, density=False)
+        hist_density = counts / (np.sum(counts) * np.diff(bins_log)[0])
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2 
+        #bin_centers = np.sqrt(bin_edges[:-1] * bin_edges[1:])
+    else:
+        bins = np.arange(np.min(data), np.max(data) + bin_width, bin_width)
+        counts, bin_edges = np.histogram(data, bins=bins, density=False)
+        hist_density = counts / (np.sum(counts) * bin_width)
+        bin_centers = bin_edges[:-1] + bin_width/ 2
+        
     return bin_centers, hist_density
 
 
@@ -68,7 +82,7 @@ def data_histogram(data, bin_width=0.05):
 
 
 def gaussian(x, mu, sigma):
-    """Standard normalized single Gaussian."""
+    """Standard unnormalized single Gaussian."""
     return np.exp(-0.5 * ((x - mu) / sigma) ** 2)
 
 def gaussian_pdf(x, mu, sigma):
@@ -78,7 +92,7 @@ def gaussian_pdf(x, mu, sigma):
 
 def mixture_pdf(x, gamma, mu1, sigma1, mu2, sigma2):
     """The normalized Double Gaussian Mixture."""
-    return gamma * gaussian_pdf(x, mu1, sigma1) + (1 - gamma) * gaussian_pdf(x, mu2, sigma2)
+    return (1 - gamma) * gaussian_pdf(x, mu1, sigma1) + (gamma) * gaussian_pdf(x, mu2, sigma2)
 
 
 def mu_order_constraint(params):
@@ -102,7 +116,7 @@ def mixture_gaussian(x, params):
     gamma, mu1, sigma1, mu2, sigma2 = params
     g1 = gaussian(x, mu1, sigma1)
     g2 = gaussian(x, mu2, sigma2)
-    f_t = (1 - gamma)*g1 + gamma*g2
+    f_t = (1 - gamma)*g1 + (gamma)*g2
     xi = np.sum(f_t) * bin_width
     return f_t / xi
 
@@ -115,6 +129,86 @@ def objective(data, params):
         return np.inf
     model = mixture_gaussian(bin_centers, params)
     return np.sum((hist_density - model)**2)
+
+
+def LSF(data, init_params, log = False):
+    
+    bounds = [
+    (0,1),       # gamma
+    (None,None), # mu1
+    (1e-6,None), # sigma1
+    (None,None), # mu2
+    (1e-6,None)  # sigma2
+    ]
+
+    # NonlinearConstraint object
+    mu_constraint = NonlinearConstraint(mu_order_constraint, 0, np.inf)
+
+    if log==True:
+
+        data = data[data > 0]  # Filter out non-positive values for log transformation  
+        log_data = np.log(data)
+    
+        result_nll = minimize(
+        objective,
+        init_params,
+        args=(log_data,),
+        bounds=bounds,
+        constraints=[mu_constraint],
+        options={'disp': True}
+        )
+
+        bin_centers, hist_density = data_histogram(data, bin_width=bin_width, log = True)
+
+    else:
+            
+        # Fit with constraint
+        result = minimize(
+        objective,
+        init_params,
+        args=(data,),
+        bounds=bounds,
+        constraints=[mu_constraint],
+        options={'disp': True}
+        )
+
+        bin_centers, hist_density = data_histogram(data, bin_width=bin_width)
+
+    # Extract fitted parameters
+    gamma, mu1, sigma1, mu2, sigma2 = result.x
+
+
+    g1 = gaussian(bin_centers, mu1, sigma1)
+    g2 = gaussian(bin_centers, mu2, sigma2)
+    f_t = (1 - gamma)*g1 + gamma*g2
+    xi = np.sum(f_t)*bin_width
+    P = f_t/xi
+    P1 = ((1 - gamma)*g1)/xi
+    P2 = (gamma*g2)/xi
+
+    #Parameter text
+    param_text = (
+    f"$\\gamma$ = {gamma:.3f}\n"
+    f"$\\mu_1$ = {mu1:.3f}\n"
+    f"$\\sigma_1$ = {sigma1:.3f}\n"
+    f"$\\mu_2$ = {mu2:.3f}\n"
+    f"$\\sigma_2$ = {sigma2:.3f}")
+
+    df = pd.DataFrame({'sigma1': sigma1, 
+                       'mu1': mu1, 
+                       'sigma2': sigma2, 
+                       'mu2': mu2, 
+                       'gamma': gamma}, index=[0])
+    
+    # --- Print Results --
+    print("--- LSF Optimization Results ---")
+    print(f"Optimization Success: {result.success}")
+    print(f"Gamma (Trial Proportion): {gamma:.3f} ({(gamma *100):.1f}% in Gaussian 2)")
+    print(f"Gaussian 1: Mean = {mu1:.3f}, StdDev = {sigma1:.3f}")
+    print(f"Gaussian 2: Mean = {mu2:.3f}, StdDev = {sigma2:.3f}")
+
+    return {'bin_centers': bin_centers, 'hist_density': hist_density, 'P_t': P, 'P1': P1, 'P2': P2, 'param_text': param_text, 'df': df}
+
 
 
 # ----- MAXIMUM LIKELIHOOD ESTIMATION (MLE) -----
@@ -136,80 +230,52 @@ def negative_log_likelihood(params, data):
 
 
 
-def LSF(data, rat, init_params):
+def MLE(data, init_params, log = False):
+
+    bounds = [
+    (0,1),       # gamma
+    (None,None), # mu1
+    (1e-6,None), # sigma1
+    (None,None), # mu2
+    (1e-6,None)  # sigma2
+    ]
+
+    mu_constraint = NonlinearConstraint(mu_order_constraint, 0, np.inf)
     
-    bounds = [
-    (0,1),       # gamma
-    (None,None), # mu1
-    (1e-6,None), # sigma1
-    (None,None), # mu2
-    (1e-6,None)  # sigma2
-    ]
+    if log==True:
 
-    # NonlinearConstraint object
-    mu_constraint = NonlinearConstraint(mu_order_constraint, 0, np.inf)
+        data = data[data > 0]  # Filter out non-positive values for log transformation  
+        log_data = np.log(data)
+    
+        result_nll = minimize(
+        negative_log_likelihood,
+        init_params,
+        args=(log_data,),
+        bounds=bounds,
+        constraints=[mu_constraint],
+        method = 'L-BFGS-B'
+        )
 
-    # Fit with constraint
-    result = minimize(
-    objective,
-    init_params,
-    args=(data,),
-    bounds=bounds,
-    constraints=[mu_constraint],
-    options={'disp': True}
-    )
+        bin_centers, hist_density = data_histogram(data, bin_width=bin_width, log = True)
 
-    # Extract fitted parameters
-    gamma, mu1, sigma1, mu2, sigma2 = result.x
+    else:
 
-    bin_centers, hist_density = data_histogram(data, bin_width=bin_width)
-
-    g1 = gaussian(bin_centers, mu1, sigma1)
-    g2 = gaussian(bin_centers, mu2, sigma2)
-    f_t = (1 - gamma)*g1 + gamma*g2
-    xi = np.sum(f_t)*bin_width
-    P = f_t/xi
-    P1 = ((1 - gamma)*g1)/xi
-    P2 = (gamma*g2)/xi
-
-    #Parameter text
-    param_text = (
-    f"$\\gamma$ = {gamma:.3f}\n"
-    f"$\\mu_1$ = {mu1:.3f}\n"
-    f"$\\sigma_1$ = {sigma1:.3f}\n"
-    f"$\\mu_2$ = {mu2:.3f}\n"
-    f"$\\sigma_2$ = {sigma2:.3f}")
-
-    return bin_centers, hist_density, P, P1, P2, param_text
-
-
-def MLE(data, init_params):
-
-    bounds = [
-    (0,1),       # gamma
-    (None,None), # mu1
-    (1e-6,None), # sigma1
-    (None,None), # mu2
-    (1e-6,None)  # sigma2
-    ]
-
-    mu_constraint = NonlinearConstraint(mu_order_constraint, 0, np.inf)
-
-    result_nll = minimize(
+        result_nll = minimize(
         negative_log_likelihood,
         init_params,
         args=(data,),
         bounds=bounds,
         constraints=[mu_constraint],
         method = 'L-BFGS-B'
-    )
+        )
+        
+        bin_centers, hist_density = data_histogram(data, bin_width=bin_width)
 
+    
     fit_gamma, fit_mu1, fit_sigma1, fit_mu2, fit_sigma2 = result_nll.x
 
-    bin_centers, hist_density = data_histogram(data, bin_width=bin_width)
-    
-    P1 = fit_gamma * gaussian_pdf(bin_centers, fit_mu1, fit_sigma1)
-    P2 = (1 - fit_gamma) * gaussian_pdf(bin_centers, fit_mu2, fit_sigma2)
+    P1 = (1- fit_gamma) * gaussian_pdf(bin_centers, fit_mu1, fit_sigma1)
+    P2 = fit_gamma * gaussian_pdf(bin_centers, fit_mu2, fit_sigma2)
     P_t = P1 + P2
 
 
@@ -222,14 +288,20 @@ def MLE(data, init_params):
         f"$\\sigma_2$ = {fit_sigma2:.3f}"
     )
 
-    # --- Print Results ---
+    df = pd.DataFrame({'sigma1': fit_sigma1, 
+                       'mu1': fit_mu1, 
+                       'sigma2': fit_sigma2, 
+                       'mu2': fit_mu2, 
+                       'gamma': fit_gamma}, index=[0])
+    
+    # --- Print Results --
     print("--- MLE Optimization Results ---")
-    print(f"Optimization Success: {result.success}")
-    print(f"Gamma (Trial Proportion): {fit_gamma:.3f} ({(fit_gamma*100):.1f}% in Gaussian 1)")
+    #print(f"Optimization Success: {result_nll.success}")
+    print(f"Gamma (Trial Proportion): {fit_gamma:.3f} ({(fit_gamma*100):.1f}% in Gaussian 2)")
     print(f"Gaussian 1: Mean = {fit_mu1:.3f}, StdDev = {fit_sigma1:.3f}")
     print(f"Gaussian 2: Mean = {fit_mu2:.3f}, StdDev = {fit_sigma2:.3f}")
 
-    return bin_centers, hist_density, P_t, P1, P2, param_text
+    return {'bin_centers': bin_centers, 'hist_density': hist_density, 'P_t': P_t, 'P1': P1, 'P2': P2, 'df': df, 'param_text': param_text}
   
 
 
@@ -244,9 +316,8 @@ def mean_response_duration(data, phase= 'DRRD 2s', PREFIX=PREFIX, OUTPUT_PATH=OU
     plt.xlabel('Session')
     plt.ylabel('Mean Response Duration')
     plt.title(f'{phase}: Mean Response Duration per Session')
-    plt.show()
     plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Mean_Response_Duration_{phase}.png'))
-
+    plt.show()
     return
 
 # ------ % OF CORRECT RESPONSES -----
@@ -262,95 +333,304 @@ def proportion_correct_responses(data, phase = 'DRRD 2s', PREFIX=PREFIX, OUTPUT_
     plt.xlabel('Session')
     plt.ylabel('Proportion of Correct Responses')
     plt.title(f'{phase}: Proportion of Correct Responses per Session')
-    plt.show()
     plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Proportion_Correct_Responses_{phase}.png'))
-
+    plt.show()
     return
 
 
 #-------- DISTRIBUTION OF RESPONSE DURATIONS ---------
 
 
-def plot_fitting_mle(data, session = 'last', init_params = init_params, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+def plot_fitting_mle_rats(data, session = 'late', init_params = init_params, log = False, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
     
-    fig, axes = plt.subplots(nrows=2, ncols=3, figsize=(15,10))
+    df_parameters = pd.DataFrame()
+    rats = data.rat.unique()
+    n_rats = len(rats)
+    n_cols = 3
+    n_rows = math.ceil(n_rats / n_cols)
+
+    subtitle = 'Double Gaussian (MLE Fit)'
+
+
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(15,5*n_rows))
     axes = axes.flatten()
+
+    
 
     for i, rat in enumerate(data.rat.unique()):
 
         ax = axes[i]  
 
-        if session == 'last':
-            last_session = data.query(f'rat == {rat}').session.max()
-            data_histogram = data.query(f'rat == {rat} and session == {last_session}').duration
-        if session == 'first':
-            data_histogram = data.query(f'rat == {rat} and session == 1').duration 
+        hist = data.query(f'rat == {rat}').duration.values
         
-        bin_centers, hist_density, P_t, P1, P2, param_text = MLE(data, init_params)
+        res = MLE(hist, init_params, log=log)
 
-        ax.bar(bin_centers, hist_density, width=bin_width, alpha=0.4, label='Normalized Histogram')
-        ax.plot(bin_centers, P_t, 'r-', lw=2, label='Fitted P(t)')
-        ax.plot(bin_centers, P1, 'g--', lw=2, label='Component 1')
-        ax.plot(bin_centers, P2, 'b--', lw=2, label='Component 2')
-        ax.set_xlabel('Time (s)')
+        res['df']['rat'] = rat
+
+        res['df']['session'] = session
+
+        df_parameters = pd.concat([df_parameters, res['df']], ignore_index=True)
+        
+        bin_width = np.diff(res['bin_centers'])[0]  # Calculate bin width from bin centers
+        
+        if log:
+            label = 'Log(Time (s))'
+        else:
+            label = 'Time (s)'
+
+        ax.bar(res['bin_centers'], res['hist_density'], width=bin_width, alpha=0.4, label='Normalized Histogram')
+        ax.plot(res['bin_centers'], res['P_t'], 'r-', lw=2, label='Fitted P(t)')
+        ax.plot(res['bin_centers'], res['P1'], 'g--', lw=2, label='Component 1')
+        ax.plot(res['bin_centers'], res['P2'], 'b--', lw=2, label='Component 2')
+        ax.text(
+            0.45, 0.95, res['param_text'],
+            transform=ax.transAxes,
+            fontsize=9,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+        ax.set_xlabel(label)
         ax.set_ylabel('Probability Density')
-        ax.set_title(f'Double Gaussian (MLE Fit) - Rat {rat}')
+        ax.set_title(f' Rat {rat}')
         ax.legend()
 
-        ax.text(
-            0.65, 0.95, param_text,
-            transform=plt.gca().transAxes,
-            fontsize=11,
-            verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
-        )
-    
-    plt.suptitle(f'Double Gaussian Fit (MLE) - Session {session}', fontsize=16)
+
+    plt.suptitle(f'{subtitle} - Session {session}', fontsize=16)
     plt.tight_layout()
-    plt.show()
     plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_MLE_Fit__{session}.png'))  
+    plt.show()
+
+    return df_parameters
 
 
-
-
-def plot_fitting_lsf(data, session = 'last', init_params = init_params):
+def plot_fitting_mle_groups(data, individual=False, session = 'late', init_params = init_params, log = False, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
     
-    fig, axes = plt.subplots(nrows=2, ncols=3, figsize=(15,10))
+    df_parameters = pd.DataFrame()
+
+    if individual:
+        groups = data.group.unique()
+        n_groups = len(groups)
+        n_cols = 2
+        n_rows = math.ceil(n_groups / n_cols)
+
+    else: 
+        n_cols = 1
+        n_rows = 1
+
+    subtitle = 'Double Gaussian (MLE Fit)'
+
+
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(15,5*n_rows))
     axes = axes.flatten()
 
-    for i, rat in enumerate(data.rat.unique()):
+    
+
+    for i, group in enumerate(data.group.unique()):
 
         ax = axes[i]  
 
-        if session == 'last':
-            last_session = data.query(f'rat == {rat}').session.max()
-            data_histogram = data.query(f'rat == {rat} and session == {last_session}').duration
-        if session == 'first':
-            data_histogram = data.query(f'rat == {rat} and session == 1').duration 
+        hist = data.query('group == @group').duration.values
         
-        bin_centers, hist_density, P_t, P1, P2, param_text = LSF(data, init_params)
+        res = MLE(hist, init_params, log=log)
 
-        ax.bar(bin_centers, hist_density, width=bin_width, alpha=0.4, label='Normalized Histogram')
-        ax.plot(bin_centers, P_t, 'r-', lw=2, label='Fitted P(t)')
-        ax.plot(bin_centers, P1, 'g--', lw=2, label='Component 1')
-        ax.plot(bin_centers, P2, 'b--', lw=2, label='Component 2')
-        ax.set_xlabel('Time (s)')
+        res['df']['group'] = group
+
+        res['df']['session'] = session
+
+        df_parameters = pd.concat([df_parameters, res['df']], ignore_index=True)
+        
+        bin_width = np.diff(res['bin_centers'])[0]  # Calculate bin width from bin centers
+        
+        if log:
+            label = 'Log(Time (s))'
+        else:
+            label = 'Time (s)'
+
+        ax.bar(res['bin_centers'], res['hist_density'], width=bin_width, alpha=0.4, label='Normalized Histogram')
+        ax.plot(res['bin_centers'], res['P_t'], 'r-', lw=2, label='Fitted P(t)')
+        ax.plot(res['bin_centers'], res['P1'], 'g--', lw=2, label='Component 1')
+        ax.plot(res['bin_centers'], res['P2'], 'b--', lw=2, label='Component 2')
+        ax.text(
+            0.45, 0.95, res['param_text'],
+            transform=ax.transAxes,
+            fontsize=9,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+        ax.set_xlabel(label)
         ax.set_ylabel('Probability Density')
-        ax.set_title(f'Double Gaussian (LSF Fit) - Rat {rat}')
+        ax.set_title(f' Group {group}')
+        ax.legend()
+
+    plt.suptitle(f'{subtitle} - Session {session}', fontsize=16)
+    plt.tight_layout()
+    plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_MLE_Fit__{session}.png'))  
+    plt.show()
+
+    return df_parameters
+
+
+def plot_fitting_lsf_rats(data, init_params = init_params, session = 'early'):
+    
+    rats = data.rat.unique()
+    n_rats = len(rats)
+    n_cols = 3
+    n_rows = math.ceil(n_rats / n_cols)
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(15, 5*n_rows))
+    axes = axes.flatten()
+    
+    for i, rat in enumerate(data.rat.unique()):
+
+        ax = axes[i]  
+    
+        hist = data.query(f'rat == {rat}').duration.values
+        
+        res = LSF(hist, init_params)
+
+        res['df']['rat'] = rat
+
+        res['df']['session'] = session
+
+        df_parameters = pd.concat([df_parameters, res['df']], ignore_index=True)
+        
+        bin_width = np.diff(res['bin_centers'])[0]  # Calculate bin width from bin centers
+        
+        if log:
+            label = 'Log(Time (s))'
+        else:
+            label = 'Time (s)'
+
+
+        ax.bar(res['bin_centers'], res['hist_density'], width=bin_width, alpha=0.4, label='Normalized Histogram')
+        ax.plot(res['bin_centers'], res['P_t'], 'r-', lw=2, label='Fitted P(t)')
+        ax.plot(res['bin_centers'], res['P1'], 'g--', lw=2, label='Component 1')
+        ax.plot(res['bin_centers'], res['P2'], 'b--', lw=2, label='Component 2')
+        ax.set_xlabel(label)
+        ax.set_ylabel('Probability Density')
+        ax.set_title(f'Rat {rat}')
         ax.legend()
 
         ax.text(
-            0.65, 0.95, param_text,
+            0.65, 0.95, res['param_text'],
             transform=plt.gca().transAxes,
             fontsize=11,
             verticalalignment='top',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
         )
     
-    plt.suptitle(f'Double Gaussian Fit (LSE) - Session {session}', fontsize=16)
+    plt.suptitle(f'Double Gaussian Fit (LSF) - Session {session}', fontsize=16)
     plt.tight_layout()
-    plt.show()
     plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_LSF_Fit_{session}.png'))  
+    plt.show()
+
+    return df_parameters
 
 
 
+
+def plot_fitting_lsf_groups(data, individual=False, session = 'late', init_params = init_params, log = False, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    
+    df_parameters = pd.DataFrame()
+
+    if individual:
+        groups = data.group.unique()
+        n_groups = len(groups)
+        n_cols = 2
+        n_rows = math.ceil(n_groups / n_cols)
+
+    else: 
+        n_cols = 1
+        n_rows = 1
+
+    subtitle = 'Double Gaussian (MLE Fit)'
+
+
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(15,5*n_rows))
+    axes = axes.flatten()
+
+    
+
+    for i, group in enumerate(data.group.unique()):
+
+        ax = axes[i]  
+
+        hist = data.query(f'group == {group}').duration.values
+        
+        res = MLE(hist, init_params, log=log)
+
+        res['df']['group'] = group
+
+        res['df']['session'] = session
+
+        df_parameters = pd.concat([df_parameters, res['df']], ignore_index=True)
+        
+        bin_width = np.diff(res['bin_centers'])[0]  # Calculate bin width from bin centers
+        
+        if log:
+            label = 'Log(Time (s))'
+        else:
+            label = 'Time (s)'
+
+        ax.bar(res['bin_centers'], res['hist_density'], width=bin_width, alpha=0.4, label='Normalized Histogram')
+        ax.plot(res['bin_centers'], res['P_t'], 'r-', lw=2, label='Fitted P(t)')
+        ax.plot(res['bin_centers'], res['P1'], 'g--', lw=2, label='Component 1')
+        ax.plot(res['bin_centers'], res['P2'], 'b--', lw=2, label='Component 2')
+        ax.text(
+            0.45, 0.95, res['param_text'],
+            transform=ax.transAxes,
+            fontsize=9,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+        ax.set_xlabel(label)
+        ax.set_ylabel('Probability Density')
+        ax.set_title(f' Group {group}')
+        ax.legend()
+
+    plt.suptitle(f'{subtitle} - Session {session}', fontsize=16)
+    plt.tight_layout()
+    plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_MLE_Fit__{session}.png'))  
+    plt.show()
+
+    return df_parameters
+
+
+def mask_last(data, number_sessions = 2):
+
+    last_sessions = data.groupby('rat')['session'].unique().apply(lambda x: x[-number_sessions:]).explode().reset_index()
+
+    valid_keys = list(zip(last_sessions['rat'], last_sessions['session']))
+
+    data['rat_session'] = list(zip(data['rat'], data['session']))
+
+    data_final = data[data['rat_session'].isin(valid_keys)].drop(columns=['rat_session'])
+    return data_final
+
+
+def plot_parameters(df_parameters, hue = 'group', PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH, experiment = 'DRRD 2s retract', fit_type = 'MLE'):
+
+    order = ['early', 'late']
+    params = ['mu1', 'sigma1', 'mu2', 'sigma2', 'gamma']
+
+    for param in params:
+        plt.figure()
+        sns.pointplot(x='session', y=param, data=df_parameters, hue = hue, palette = 'Set2', order = order)
+        sns.boxplot(x='session', y=param, data=df_parameters, color='lightgray', fliersize=0, width=0.5, showfliers=False, boxprops=dict(alpha=0.3), order = order)
+        plt.title(f'Boxplot of {param} - {fit_type} Fit - {experiment}')
+        plt.xlabel('Session')
+        plt.ylabel(param)
+        plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Boxplot_{param}_{fit_type}_{experiment}.png'))
+        plt.show()
+   
+
+
+def compare_parameters(df_parameters, hue = 'group', PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH, experiment = 'DRRD 2s retract', fit_type = 'MLE'):
+
+    order = ['early', 'late']
+    params = ['mu1', 'sigma1', 'mu2', 'sigma2', 'gamma']
+
+    for param in params:
+        plt.figure()
+        sns.pointplot(x='session', y=param, data=df_parameters, hue = hue, palette = 'Set2', order = order)
+        plt.title(f'Comparison of {param} - {fit_type} Fit - {experiment}')
+        plt.xlabel('Session')
+        plt.ylabel(param)
+        plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Comparison_{param}_{fit_type}_{experiment}.png'))
+        plt.show()

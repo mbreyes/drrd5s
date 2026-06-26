@@ -6,6 +6,8 @@ Created on Mon Jan 29 13:43:12 2024
 @author: mbreyes
 """
 
+from mimetypes import init
+
 import drrdTools as dr
 import numpy as np
 import pandas as pd
@@ -123,15 +125,61 @@ drrd.compare_group_kdes(df_last_sessions, xlim=(-1,20))
 #%%
 #-------- FIT DOUBLE GAUSSIAN TO LOG OF DURATION DISTRIBUTION ---------
 
-# BY GROUP EARLY AND LATE SESSIONS
+# ------- MAXIMUM LIKELIHOOD ESTIMATION ---------
+
+# ---- Fitting for each rat by group and session ----
+
+
 bin_width = 0.1
-init_params = [0.5, 2.0, 0.5, 8.0, 0.5]
+n_bins = 50
+init_params = (0.858, -2, 3.4, 2.45, 0.233)
+
+mle_parameters = pd.DataFrame()
+
+
 for group in df.group.unique():
-    df_group = df.query('group == @group and session >= 16').reset_index(drop=True)
-    mf.plot_fitting_mle(df_group, session = 'last', init_params = init_params, subtitle=f'(MLE Fit) - Group {group} - Late Sessions', log = True, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH)
     df_group = df.query('group == @group and session <= 3').reset_index(drop=True)
-    mf.plot_fitting_mle(df_group, session = 'early', init_params = init_params, subtitle=f'(MLE Fit) - Group {group} - Early Sessions', log = True, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH)
+    df_parameters = mf.plot_fitting_mle_rats(df_group, session = 'early', init_params = init_params, log = True, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH)
+    df_parameters['group'] = group
+    mle_parameters = pd.concat([mle_parameters, df_parameters], ignore_index=True)
+    df_group = df.query('group == @group and session >= 16').reset_index(drop=True)
+    df_parameters = mf.plot_fitting_mle_rats(df_group, session = 'late', init_params = init_params, log = True, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH)
+    df_parameters['group'] = group
+    mle_parameters = pd.concat([mle_parameters, df_parameters], ignore_index=True)
     
+# --- Parameters by group and session ----
+
+# All the parameters werer individually fitted for each rat, and then the mean and standard deviation were calculated for each group and session. The results are stored in the `mle_parameters` DataFrame.
+
+mf.plot_parameters(mle_parameters, hue = 'group', PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH, experiment = 'DRRD 10s retract', fit_type = 'MLE')   
+mf.plot_parameters(mle_parameters, hue = 'group', PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH, experiment = 'DRRD 10s retract', fit_type = 'MLE') 
+
+
+#%%
+
+#----------- Fit for each group by session ------------
+
+group_parameters = pd.DataFrame()
+
+
+df_group = df.query('session >= 16').reset_index(drop=True)
+df_parameters = mf.plot_fitting_mle_groups(individual=True, data=df_group, session = 'late', init_params = init_params, log = True, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH)
+group_parameters = pd.concat([group_parameters, df_parameters], ignore_index=True)
+df_group = df.query('session <= 3').reset_index(drop=True)
+df_parameters = mf.plot_fitting_mle_groups(individual=True, data=df_group, session = 'early', init_params = init_params, log = True, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH)
+group_parameters = pd.concat([group_parameters, df_parameters], ignore_index=True)
+
+# ---- Parameters by group and session ----
+
+# The parameters were fitted for each group, and the results are stored in the `group_parameters` DataFrame.
+
+mf.plot_parameters(group_parameters, hue = 'group', PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH, experiment = 'DRRD 10s retract', fit_type = 'MLE')
+mf.plot_parameters(group_parameters, hue = 'group', PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH, experiment = 'DRRD 10s retract', fit_type = 'MLE')
+
+# ------------  FIT DOUEBLE GAUSSIAN FOR ALL GROUPS TOGETHER ------------
+
+df_all = df.query('session >= 16').reset_index(drop=True)
+mf.plot_fitting_mle_groups(individual = True, data = df_all, session = 'late', init_params = init_params, log = True, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH)
 
 #---------- CHECK RESPONSE DISTRIBUTION PER GROUP ------------
 
@@ -216,3 +264,5 @@ def anova_ultima_sessao(data):
     
     return
 
+
+# %%
