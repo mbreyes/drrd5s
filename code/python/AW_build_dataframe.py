@@ -1,4 +1,4 @@
-
+#%%
 import drrdTools as dr
 import numpy as np
 import pandas as pd
@@ -8,7 +8,7 @@ import os
 
 plt.style.use('ggplot')
 sns.set(style='ticks')
-
+#%%
 PREFIX = 'AW1'
 DATA_PATH = os.path.realpath('../../data/raw/AW/')+'/'
 OUTPUT_PATH = os.path.realpath('../../data/processed/')+'/'
@@ -18,5 +18,14 @@ LAST_SESSION = 19
 ALL_SESSIONS = np.arange(1,LAST_SESSION+1)
 
 dr.exp_dataframe(PREFIX, rats, DATA_PATH, OUTPUT_PATH, ALL_SESSIONS)
+#%%
+PREFIX = 'AU'
+LAST_SESSION = 19
+ALL_SESSIONS = np.arange(1,LAST_SESSION+1)
+DATA_PATH = os.path.realpath('../../data/raw/AU/')+'/'
+OUTPUT_PATH = os.path.realpath('../../data/processed/')+'/'
+rats = [15,16,17,18,19,20,21,22,23,24,25,26]
 
+dr.exp_dataframe(PREFIX, rats, DATA_PATH, OUTPUT_PATH, ALL_SESSIONS)
 
+# %%
