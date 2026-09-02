@@ -65,9 +65,9 @@
 
 \ Constants for current experiment
 ^sessionLength = 50   \ session length in minutes (e.g., 50 minutes) 
-^InitialPrime = 100   \ Intial prime value (in ms) - ALL CONSTANTS MUST BE INTEGER
+^InitialPrime = 500   \ Intial prime value (in ms) - ALL CONSTANTS MUST BE INTEGER
 ^Increment = 10       \ Prime increment    (in percentage)
-^maxPrimeTime = 10000 \maximal time the lever needs to be held (in units of 100ms: 50 = 5000ms).
+^maxPrimeTime = 5000 \maximal time the lever needs to be held (in units of 100ms: 50 = 5000ms).
 
 \ STATE constants
 ^StateEndSession = 32		\ Event Code on Disk is (32+^STATE)/^STORE = .061

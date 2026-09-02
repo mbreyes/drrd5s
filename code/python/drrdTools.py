@@ -97,14 +97,51 @@ def group_name(fNAME):
     fid.close()
 
     result = re.search(pattern, '\n'.join(fileString))
-
     if result is not None:
     # O group(1) pega apenas o que está dentro dos parênteses (.*)
     # O .strip() no final garante que espaços extras no fim da frase também sumam
         group_name = result.group(1).strip()
     
+
     print(f"The group is: '{group_name}'")
     return(group_name)
+
+
+def criterion(fNAME):
+
+    try:
+        fid = open(fNAME, 'r')
+    except IOError:
+        print("Could not read file:", fNAME)
+        return ([])
+    
+    pattern = r"K:\s*(.*)"
+
+    fileString = fid.readlines()
+    fid.close()
+
+    result = re.search(pattern, '\n'.join(fileString))
+
+    if result is not None:
+        criterion_value = result.group(1).strip()
+        criterion_value = float(criterion_value)  # Convert to integer if needed
+    
+
+    # Verifica se o nome do arquivo corresponde ao padrão "AW" seguido de números
+
+    archive_name = os.path.basename(fNAME)
+    name_pattern = r"^AU\d+"
+
+    if re.match(name_pattern, archive_name):
+
+        criterion_value = criterion_value / 10
+    
+    else:
+        
+        criterion_value = criterion_value / 1000  # Convert to seconds if needed     
+
+    print(f"The criterion is: '{criterion_value}'")
+    return(criterion_value)
 
 
 def plotDrrd(D, title_label='Title_Label'):
@@ -1162,6 +1199,8 @@ def exp_dataframe(PREFIX:str, RATS:list, Data_Path:str, Output_Path:str, ALL_SES
 
             rat_group = group_name(Data_Path + filename)  # reads the group name from the file
                  
+            criterion_value = criterion(Data_Path + filename)  # reads the criterion value from the file
+
             D = dr.drrd(prefix= PREFIX, animalID=rat, sessions=[session],
                                 dataPath=Data_Path, plotFlag=True, events_to_eliminate=(5,9))
                     
@@ -1179,7 +1218,9 @@ def exp_dataframe(PREFIX:str, RATS:list, Data_Path:str, Output_Path:str, ALL_SES
                 thisD.loc[:,'rat'] = rat
                 thisD.loc[:,'trial'] = np.arange(1,len(thisD)+1)
                 thisD.loc[:,'group'] = rat_group
-                
+                if (thisD['criterion'] == 0).all():
+                    thisD['criterion'] = criterion_value
+
                 all_data = pd.concat((all_data,thisD))
 
            
@@ -1208,6 +1249,8 @@ def exp_dataframe_timeout(PREFIX:str, RATS:list, Data_Path:str, Output_Path:str,
 
                     rat_group = group_name(Data_Path + filename)  # reads the group name from the file
 
+                    criterion_value = criterion(Data_Path + filename)  # reads the criterion value from the file
+
                     D = dr.drrd(prefix= PREFIX, animalID=rat, sessions=[session],
                                 dataPath=Data_Path, plotFlag=True, events_to_eliminate=(5,9))
                     
@@ -1225,8 +1268,12 @@ def exp_dataframe_timeout(PREFIX:str, RATS:list, Data_Path:str, Output_Path:str,
                         thisD.loc[:,'rat'] = rat
                         thisD.loc[:,'trial'] = np.arange(1,len(thisD)+1)
                         thisD.loc[:,'group'] = rat_group
-                        
+                        if (thisD['criterion'] == 0).all():
+                            thisD['criterion'] = criterion_value
+
                         all_data = pd.concat((all_data,thisD))
+                    
+                    
 
             except FileNotFoundError:
                 

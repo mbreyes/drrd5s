@@ -1,0 +1,13 @@
+rat,group,reached,all_sessions_rewarded,learned
+15,LINEAR,True,True,True
+16,EXP40,False,False,False
+17,LINEAR,True,False,False
+18,EXP40,True,False,False
+19,LINEAR,False,False,False
+20,EXP40,False,False,False
+21,LINEAR,False,False,False
+22,EXP40,True,False,False
+23,LINEAR,True,True,True
+24,EXP40,False,False,False
+25,LINEAR,True,True,True
+26,EXP40,False,False,False

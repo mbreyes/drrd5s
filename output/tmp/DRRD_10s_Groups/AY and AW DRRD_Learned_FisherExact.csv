@@ -1,0 +1,3 @@
+method,p_value,odds_ratio
+exact (network / Freeman-Halton),0.3524678501502468,
+Monte Carlo simulation (B=100000),0.35273647263527363,
