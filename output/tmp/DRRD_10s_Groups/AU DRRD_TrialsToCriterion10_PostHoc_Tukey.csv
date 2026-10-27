@@ -1,0 +1,2 @@
+term,group1,group2,null.value,estimate,conf.low,conf.high,p.adj,p.adj.signif
+group,EXP40,LINEAR,0.0,-557.1999999999998,-5955.026318184242,4840.626318184242,0.8013305199324696,ns

@@ -12,18 +12,18 @@ import datetime
 import os
 
 # first day the rat was trained
-FIRST_DAY = datetime.date(2026,8,4)
+FIRST_DAY = datetime.date(2026,9,23)
 
 # number of day in the graph
 N_DAYS = 60
 
 
-R135= [350]
-R136= [375]
-R137= [390]
-R138= [415]
-R139= [415]
-R140= [380]
+R135= [370]
+R136= [395]
+R137= [410]
+R138= [400]
+R139= [435]
+R140= [385]
 
 
 # all rats

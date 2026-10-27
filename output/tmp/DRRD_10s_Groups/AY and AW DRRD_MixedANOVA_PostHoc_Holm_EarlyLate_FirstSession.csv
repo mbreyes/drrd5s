@@ -1,0 +1,13 @@
+segment,.y.,group1,group2,n1,n2,p,p.signif,p.adj,p.adj.signif
+Early,mean_duration,EXP10,EXP20,9,9,0.9188497750681327,ns,1.0,ns
+Early,mean_duration,EXP10,LINEAR,9,9,0.9286870020707515,ns,1.0,ns
+Early,mean_duration,EXP20,LINEAR,9,9,0.9901156128147983,ns,1.0,ns
+Early,mean_duration,EXP10,PERC,9,8,0.9060389913056827,ns,1.0,ns
+Early,mean_duration,EXP20,PERC,9,8,0.8283521918418094,ns,1.0,ns
+Early,mean_duration,LINEAR,PERC,9,8,0.8377207041202257,ns,1.0,ns
+Late,mean_duration,EXP10,EXP20,9,9,0.6364845557602029,ns,1.0,ns
+Late,mean_duration,EXP10,LINEAR,9,9,0.5963426295020534,ns,1.0,ns
+Late,mean_duration,EXP20,LINEAR,9,9,0.9542275401947624,ns,1.0,ns
+Late,mean_duration,EXP10,PERC,9,8,0.45882838014097993,ns,1.0,ns
+Late,mean_duration,EXP20,PERC,9,8,0.7759681733792381,ns,1.0,ns
+Late,mean_duration,LINEAR,PERC,9,8,0.8188837662184667,ns,1.0,ns

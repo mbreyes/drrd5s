@@ -20,6 +20,15 @@ from sklearn.mixture import GaussianMixture
 import drrdTools as dr
 from matplotlib.ticker import FixedLocator, FuncFormatter, LogLocator, MaxNLocator
 
+# ---- R (rpy2): usado para ANOVA mista (parametrica e nparLD, nao-parametrica) ----
+import rpy2.robjects as ro
+from rpy2.robjects import pandas2ri
+from rpy2.robjects.conversion import localconverter
+from rpy2.robjects.packages import importr
+
+rstatix = importr('rstatix')
+nparld = importr('nparLD')
+
 plt.style.use('ggplot')
 plt.rcParams['figure.dpi'] = 500
 
@@ -103,6 +112,70 @@ def data_histogram(data, bin_width=bin_width, n_bins = 60, log = False, calc_cur
 
         
     return bin_centers, hist_density
+
+
+def data_histogram_max(data, bin_width=bin_width, n_bins=700, log=False, calc_curve=False, offset=3):
+    """Same as `data_histogram`, but instead of a fixed 0-30s range the bins go up to the
+    longest response + `offset` seconds, so short-criterion sessions (e.g. 1.5s) are not
+    squeezed into a mostly empty axis. The curve grid uses `n_bins` points (700, as the log
+    curve grid of `data_histogram`)."""
+
+    data = np.asarray(data, dtype=float).flatten()
+    data = data[data > 0]
+    t_max = data.max() + offset
+
+    if log:
+        log_data = np.log(data)
+        lower, upper = np.log(0.02), np.log(t_max)
+
+        if calc_curve:
+            bins_log = np.linspace(lower, upper, n_bins)
+            counts, bin_edges = np.histogram(log_data, bins=bins_log, density=False)
+            hist_density = counts / (np.sum(counts) * np.diff(bins_log)[0])
+        else:
+            bins_log = np.arange(lower, upper + bin_width, bin_width)
+            counts, bin_edges = np.histogram(log_data, bins=bins_log, density=False)
+            hist_density = counts / (np.sum(counts) * bin_width)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+    else:
+
+        if calc_curve:
+            bins = np.linspace(0.02, t_max, n_bins)
+            counts, bin_edges = np.histogram(data, bins=bins, density=False)
+            hist_density = counts / (np.sum(counts) * np.diff(bins)[0])
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        else:
+            bins = np.arange(np.min(data), t_max + bin_width, bin_width)
+            counts, bin_edges = np.histogram(data, bins=bins, density=False)
+            hist_density = counts / (np.sum(counts) * bin_width)
+            bin_centers = bin_edges[:-1] + bin_width / 2
+
+    return bin_centers, hist_density
+
+
+def calculate_bin_width(data, n_bins=60, min_bin_width=bin_width, ceiling = 10):
+    """Bin width derived from the data's own range (max - min) so that it
+    always yields roughly `n_bins` bins, instead of a fixed guess that may
+    be too coarse/fine depending on how spread out the data is.
+
+    When a rat/session's data is tightly clustered (small range), range/n_bins
+    alone can produce bins so narrow the histogram looks like noise -- so the
+    result is floored at `min_bin_width`."""
+
+    data = np.asarray(data, dtype=float)
+    data = data[~np.isnan(data)]
+    if data.max()> ceiling:
+        data = data[data <= ceiling]
+        data_range = data.max() - data.min() if data.size > 0 else 0
+
+    else: 
+        data_range = data.max() - data.min() if data.size > 0 else 0
+
+    if data_range <= 0:
+        return bin_width
+
+    return max(data_range / n_bins, min_bin_width)
 
 
 def lognormal_mean_sd(mu_log, sigma_log):
@@ -354,7 +427,24 @@ def calculate_gamma_2(gamma, mu1, sigma1, mu2, sigma2):
     return gamma_2
 
 
-def MLE(data, log = False):
+def MLE(data, log = False, bin_width = None, n_bins_hist = 60, upper_offset = None):
+
+    # upper_offset: se dado, os bins (histograma e curva) vao ate a maior duracao + upper_offset
+    # segundos (data_histogram_max), em vez do range fixo 0.02-30s de data_histogram.
+    hist_fn = data_histogram if upper_offset is None else \
+        (lambda *args, **kwargs: data_histogram_max(*args, offset=upper_offset, **kwargs))
+
+
+    # bin_width so afeta o histograma dos dados exibido (nao a curva ajustada,
+    # que usa uma grade fina fixa). Por padrao eh calculado a partir do
+    # proprio range (max - min) dos dados (em escala log quando log=True),
+    # para se adaptar ao espalhamento de cada rato/sessao em vez de usar um
+    # valor fixo -- ver calculate_bin_width().
+    if bin_width is None:
+        if log:
+            bin_width = calculate_bin_width(np.log(data[data > 0]), n_bins=n_bins_hist)
+        else:
+            bin_width = calculate_bin_width(data, n_bins=n_bins_hist)
 
     bounds = [
     (0,1),       # gamma
@@ -369,7 +459,7 @@ def MLE(data, log = False):
         data = data[data > 0]  # Filter out non-positive values for log transformation  
         log_data = np.log(data)
 
-        bin_centers_curve, hist_density_curve = data_histogram(data, bin_width=bin_width, log = True, calc_curve = True)
+        bin_centers_curve, hist_density_curve = hist_fn(data, bin_width=bin_width, log = True, calc_curve = True)
         init_params = estimate_init_params(log_data)
        
         
@@ -384,7 +474,7 @@ def MLE(data, log = False):
        
     else:
 
-        bin_centers_curve, hist_density_curve = data_histogram(data, bin_width=bin_width, calc_curve = True)
+        bin_centers_curve, hist_density_curve = hist_fn(data, bin_width=bin_width, calc_curve = True)
         init_params = estimate_init_params(data)
         
         result_nll = minimize(
@@ -410,7 +500,7 @@ def MLE(data, log = False):
 
     if log:
 
-        bin_centers_hist, hist_density_hist = data_histogram(data, bin_width=bin_width, log = True)
+        bin_centers_hist, hist_density_hist = hist_fn(data, bin_width=bin_width, log = True)
         
         mean1, sd1 = lognormal_mean_sd(fit_mu1, fit_sigma1)
         mean2, sd2 = lognormal_mean_sd(fit_mu2, fit_sigma2)
@@ -426,7 +516,7 @@ def MLE(data, log = False):
         )
     else:
 
-        bin_centers_hist, hist_density_hist = data_histogram(data, bin_width=bin_width)
+        bin_centers_hist, hist_density_hist = hist_fn(data, bin_width=bin_width)
 
         # Parameter text
         param_text = (
@@ -578,7 +668,7 @@ def mean_response_duration(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
 
     df_mean = data.groupby(['rat', 'session', 'group']).duration.mean().reset_index(name = 'mean_duration')
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.lineplot(x='session', y='mean_duration', hue='group', data=df_mean, errorbar = 'se', palette=COLOR_MAP)
     plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
     plt.xlabel('Session')
@@ -587,6 +677,82 @@ def mean_response_duration(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
     plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Mean_Response_Duration.png'))
     plt.show()
     plt.close()
+    return
+
+
+def mean_response_duration_by_condition(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """Mean response duration per session, faceted by group, comparing two
+    conditions (e.g. 'Baseline' vs 'Timeout') given in a 'condition' column of
+    `data`."""
+
+    ALL_GROUPS = sorted(data['group'].unique())
+    ALL_CONDITIONS = sorted(data['condition'].unique())
+    COLOR_MAP = dict(zip(ALL_CONDITIONS, sns.color_palette('Set2', n_colors=len(ALL_CONDITIONS))))
+
+    n_groups = len(ALL_GROUPS)
+    n_cols = 2
+    n_rows = math.ceil(n_groups / n_cols)
+
+    df_mean = data.groupby(['rat', 'session', 'group', 'condition']).duration.mean().reset_index(name='mean_duration')
+
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols,
+                              figsize=(6 * n_cols, 5 * n_rows),
+                              constrained_layout=True)
+    axes = np.atleast_1d(axes).flatten()
+
+    for i, group in enumerate(ALL_GROUPS):
+        ax = axes[i]
+        group_data = df_mean.query('group == @group')
+
+        sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+        sns.lineplot(x='session', y='mean_duration', hue='condition', hue_order=ALL_CONDITIONS,
+                     data=group_data, ax=ax, palette=COLOR_MAP, errorbar='se')
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_xlabel('Session')
+        ax.set_ylabel('Mean Response Duration (s)')
+        ax.set_title(f'Group {group}')
+        ax.legend(fontsize=8, title=None)
+
+    for j in range(n_groups, len(axes)):
+        fig.delaxes(axes[j])
+
+    plt.suptitle(f'{PREFIX}: Mean Response Duration per Session, Baseline vs Timeout', fontsize=16)
+    fig.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Mean_Response_Duration_Baseline_vs_Timeout.png'),
+                dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close(fig)
+
+    return
+
+
+def mean_response_duration_by_condition_combined(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """Same comparison as mean_response_duration_by_condition, but with every
+    group and both conditions (e.g. 'Baseline' vs 'Timeout') on a single shared
+    axis: color (hue) distinguishes group, line style (style) distinguishes
+    condition."""
+
+    ALL_GROUPS = sorted(data['group'].unique())
+    ALL_CONDITIONS = sorted(data['condition'].unique())
+    COLOR_MAP = dict(zip(ALL_GROUPS, sns.color_palette('Set2', n_colors=len(ALL_GROUPS))))
+
+    df_mean = data.groupby(['rat', 'session', 'group', 'condition']).duration.mean().reset_index(name='mean_duration')
+
+    plt.figure()
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.lineplot(x='session', y='mean_duration', hue='group', hue_order=ALL_GROUPS,
+                 style='condition', style_order=ALL_CONDITIONS,
+                 data=df_mean, palette=COLOR_MAP, errorbar='se')
+
+    ax = plt.gca()
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.set_xlabel('Session')
+    ax.set_ylabel('Mean Response Duration (s)')
+    plt.title(f'{PREFIX}: Mean Response Duration per Session, Baseline vs Timeout')
+    plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Mean_Response_Duration_Baseline_vs_Timeout_combined.png'),
+                dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+
     return
 
 
@@ -600,7 +766,7 @@ def proportion_correct_responses(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
     df_correct = data.groupby(['rat', 'session', 'group']).reinforced.mean().reset_index(name = 'correct')
     
     plt.figure()    
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.lineplot(x='session', y='correct', hue='group', data=df_correct, palette = COLOR_MAP, errorbar = 'se')
     ax = plt.gca()
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
@@ -645,7 +811,7 @@ def proportion_correct_responses_by_criterion(data, crit=10, PREFIX=PREFIX, OUTP
         ax = axes[i]
         group_data = df_prop_correct.query('group == @group')
 
-        sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+        sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
         sns.lineplot(x='session', y='correct', hue='criterion_subgroup', hue_order=[reached_label, not_reached_label],
                      data=group_data, ax=ax, palette=SUBGROUP_COLORS, errorbar='se')
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
@@ -666,6 +832,84 @@ def proportion_correct_responses_by_criterion(data, crit=10, PREFIX=PREFIX, OUTP
     return
 
 
+# ------ % OF CORRECT RESPONSES, BASELINE VS TIMEOUT -----
+
+def proportion_correct_responses_by_condition(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """Proportion of correct responses per session, faceted by group, comparing
+    two conditions (e.g. 'Baseline' vs 'Timeout') given in a 'condition' column
+    of `data`."""
+
+    ALL_GROUPS = sorted(data['group'].unique())
+    ALL_CONDITIONS = sorted(data['condition'].unique())
+    COLOR_MAP = dict(zip(ALL_CONDITIONS, sns.color_palette('Set2', n_colors=len(ALL_CONDITIONS))))
+
+    n_groups = len(ALL_GROUPS)
+    n_cols = 2
+    n_rows = math.ceil(n_groups / n_cols)
+
+    df_prop_correct = data.groupby(['rat', 'session', 'group', 'condition']).reinforced.mean().reset_index(name='correct')
+
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols,
+                              figsize=(6 * n_cols, 5 * n_rows),
+                              constrained_layout=True)
+    axes = np.atleast_1d(axes).flatten()
+
+    for i, group in enumerate(ALL_GROUPS):
+        ax = axes[i]
+        group_data = df_prop_correct.query('group == @group')
+
+        sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+        sns.lineplot(x='session', y='correct', hue='condition', hue_order=ALL_CONDITIONS,
+                     data=group_data, ax=ax, palette=COLOR_MAP, errorbar='se')
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_xlabel('Session')
+        ax.set_ylabel('Proportion of Correct Responses')
+        ax.set_title(f'Group {group}')
+        ax.legend(fontsize=8, title=None)
+
+    for j in range(n_groups, len(axes)):
+        fig.delaxes(axes[j])
+
+    plt.suptitle(f'{PREFIX}: Proportion of Correct Responses per Session, Baseline vs Timeout', fontsize=16)
+    fig.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Proportion_Correct_Responses_Baseline_vs_Timeout.png'),
+                dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close(fig)
+
+    return
+
+
+def proportion_correct_responses_by_condition_combined(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """Same comparison as proportion_correct_responses_by_condition, but with every
+    group and both conditions (e.g. 'Baseline' vs 'Timeout') on a single shared
+    axis: color (hue) distinguishes group, line style (style) distinguishes
+    condition."""
+
+    ALL_GROUPS = sorted(data['group'].unique())
+    ALL_CONDITIONS = sorted(data['condition'].unique())
+    COLOR_MAP = dict(zip(ALL_GROUPS, sns.color_palette('Set2', n_colors=len(ALL_GROUPS))))
+
+    df_prop_correct = data.groupby(['rat', 'session', 'group', 'condition']).reinforced.mean().reset_index(name='correct')
+
+    plt.figure()
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.lineplot(x='session', y='correct', hue='group', hue_order=ALL_GROUPS,
+                 style='condition', style_order=ALL_CONDITIONS,
+                 data=df_prop_correct, palette=COLOR_MAP, errorbar='se')
+
+    ax = plt.gca()
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.set_xlabel('Session')
+    ax.set_ylabel('Proportion of Correct Responses')
+    plt.title(f'{PREFIX}: Proportion of Correct Responses per Session, Baseline vs Timeout')
+    plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Proportion_Correct_Responses_Baseline_vs_Timeout_combined.png'),
+                dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+
+    return
+
+
 # ------ % OF CORRECT RESPONSES, ONE LINE PER RAT -----
 
 def proportion_correct_responses_by_rat(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
@@ -679,7 +923,7 @@ def proportion_correct_responses_by_rat(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_
     palette = dict(zip(rats, sns.color_palette('tab10', n_colors=len(rats))))
 
     plt.figure(figsize=(8, 5))
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.lineplot(x='session', y='correct', hue='rat', style='group', data=df_correct,
                  palette=palette, marker='o')
     ax = plt.gca()
@@ -695,6 +939,236 @@ def proportion_correct_responses_by_rat(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_
     return
 
 
+def proportion_correct_responses_by_rat_phases(phases, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """Lineplot of the proportion of correct (reinforced) responses per session, per rat,
+    concatenating several phases in sequence. `phases` is an ordered dict {phase_name: data}.
+    Sessions of each phase are offset so they follow the last session of the previous phase,
+    and a dashed vertical line marks the transition between phases."""
+
+    frames = []
+    offset = 0
+    boundaries = []
+    for phase, data in phases.items():
+        df_phase = data.groupby(['rat', 'session', 'group']).reinforced.mean().reset_index(name='correct')
+        df_phase['phase'] = phase
+        df_phase['cumulative_session'] = df_phase['session'] + offset
+        frames.append(df_phase)
+        boundaries.append((phase, offset))
+        offset += df_phase['session'].max()
+    df_correct = pd.concat(frames, ignore_index=True).sort_values(['group', 'rat'])
+
+    rats = sorted(df_correct['rat'].unique())
+    palette = dict(zip(rats, sns.color_palette('tab10', n_colors=len(rats))))
+
+    plt.figure(figsize=(10, 5))
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    # units='phase' + estimator=None keeps the line broken between phases
+    sns.lineplot(x='cumulative_session', y='correct', hue='rat', style='group', data=df_correct,
+                 palette=palette, marker='o', units='phase', estimator=None)
+    ax = plt.gca()
+    for phase, start in boundaries:
+        if start > 0:
+            ax.axvline(start + 0.5, color='k', linestyle='--', linewidth=1)
+        ax.text(start + 0.6, 1.02, phase, transform=ax.get_xaxis_transform(), fontsize=9, fontweight='bold')
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    plt.xlabel('Session (cumulative)')
+    plt.ylabel('Proportion of Correct Responses')
+    plt.title(f'{PREFIX}: Proportion of Correct Responses per Session, per Rat', pad=20)
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=8)
+    plt.tight_layout()
+    plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Proportion_Correct_Responses_by_Rat.png'))
+    plt.show()
+    plt.close()
+    return
+
+
+# ------ PER-RAT SESSION METRICS ACROSS PHASES, WITH TREATMENT SHADING -----
+
+TREATMENT_COLORS = {'Saline': 'tab:blue', 'Muscimol': 'tab:red', 'None': None}
+PREMATURE_THRESHOLD = 0.5  # responses shorter than this (s) are premature
+
+# metric: (y label, file name)
+PHASES_TREATMENT_METRICS = {
+    'responses': ('Number of Responses', 'Number_Responses'),
+    'proportion_correct': ('Proportion of Correct Responses', 'Proportion_Correct_Responses'),
+    'premature': ('Proportion of Premature Responses', 'Proportion_Premature_Responses'),
+    'mean_duration': ('Mean Response Duration (s)', 'Mean_Response_Duration'),
+}
+
+def _session_metric(data, metric, premature_threshold=PREMATURE_THRESHOLD):
+    """Per rat/session/group dataframe with the `metric` of each session in a 'value' column
+    (see `session_metric_by_rat_phases_treatment` for the available metrics)."""
+
+    grouped = data.assign(premature=data['duration'] < premature_threshold).groupby(['rat', 'session', 'group'])
+    if metric == 'responses':
+        return grouped.size().reset_index(name='value')
+    elif metric == 'proportion_correct':
+        return grouped.reinforced.mean().reset_index(name='value')
+    elif metric == 'mean_duration':
+        return grouped.duration.mean().reset_index(name='value')
+    return grouped.premature.mean().reset_index(name='value')
+
+
+def _metric_ylabel(metric, premature_threshold=PREMATURE_THRESHOLD):
+    ylabel, file_name = PHASES_TREATMENT_METRICS[metric]
+    if metric == 'premature':
+        ylabel = f'{ylabel} (< {premature_threshold * 1000:.0f} ms)'
+    return ylabel, file_name
+
+
+def session_metric_by_rat(data, metric='proportion_correct', premature_threshold=PREMATURE_THRESHOLD,
+                          PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """Lineplot of a per-session metric of a single phase, with one line per rat,
+    colored by rat and styled by group. `metric` works as in `session_metric_by_rat_phases_treatment`."""
+
+    ylabel, file_name = _metric_ylabel(metric, premature_threshold)
+    df_metric = _session_metric(data, metric, premature_threshold).sort_values(['group', 'rat'])
+
+    rats = sorted(df_metric['rat'].unique())
+    palette = dict(zip(rats, sns.color_palette('tab10', n_colors=len(rats))))
+
+    plt.figure(figsize=(8, 5))
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.lineplot(x='session', y='value', hue='rat', style='group', data=df_metric,
+                 palette=palette, marker='o')
+    ax = plt.gca()
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    plt.xlabel('Session')
+    plt.ylabel(ylabel)
+    plt.title(f'{PREFIX}: {ylabel} per Session, per Rat')
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=8)
+    plt.tight_layout()
+    plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_{file_name}_by_Rat.png'))
+    plt.show()
+    plt.close()
+    return df_metric
+
+
+def _concat_phases(phases, treatments):
+    """Concatenates the per-session dataframes of `phases` ({phase_name: df}) in sequence, adding
+    `phase` and `cumulative_session` columns. Each phase spans its sessions plus the ones listed
+    in `treatments`. Returns (df, boundaries, total), `boundaries` being [(phase_name, offset)]."""
+
+    frames = []
+    offset = 0
+    boundaries = []
+    for phase, df_phase in phases.items():
+        df_phase = df_phase.copy()
+        df_phase['phase'] = phase
+        df_phase['cumulative_session'] = df_phase['session'] + offset
+        frames.append(df_phase)
+        boundaries.append((phase, offset))
+        offset += max([df_phase['session'].max()] + list(treatments.get(phase, {}).keys()))
+    df = pd.concat(frames, ignore_index=True).sort_values(['group', 'rat'])
+    return df, boundaries, offset
+
+
+def _lineplot_by_rat_phases_treatment(df, y, boundaries, total, treatments, phase_labels, ylabel, title,
+                                      save_path, treatment_colors=TREATMENT_COLORS, alpha=0.12):
+    """Lineplot of column `y` per cumulative session, one line per rat, with a dashed line between
+    phases and each session listed in `treatments` shaded with the color of its treatment."""
+
+    phase_labels = phase_labels or {}
+
+    rats = sorted(df['rat'].unique())
+    palette = dict(zip(rats, sns.color_palette('tab10', n_colors=len(rats))))
+
+    plt.figure(figsize=(10, 5))
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    # each rat's line runs continuously across phases
+    sns.lineplot(x='cumulative_session', y=y, hue='rat', style='group', data=df,
+                 palette=palette, marker='o')
+    ax = plt.gca()
+
+    used_treatments = []
+    for phase, start in boundaries:
+        if start > 0:
+            ax.axvline(start + 0.5, color='k', linestyle='--', linewidth=1)
+        label = f'{phase} - {phase_labels[phase]}' if phase in phase_labels else phase
+        ax.text(start + 0.6, 1.02, label, transform=ax.get_xaxis_transform(), fontsize=9, fontweight='bold')
+        for session, treatment in treatments.get(phase, {}).items():
+            color = treatment_colors.get(treatment)
+            if color is None:
+                continue
+            ax.axvspan(start + session - 0.5, start + session + 0.5, color=color, alpha=alpha, linewidth=0)
+            if treatment not in used_treatments:
+                used_treatments.append(treatment)
+
+    ax.set_xlim(0.5, total + 0.5)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    plt.xlabel('Session (cumulative)')
+    plt.ylabel(ylabel)
+    plt.title(title, pad=20)
+
+    handles, labels = ax.get_legend_handles_labels()
+    if used_treatments:
+        handles += [plt.Line2D([], [], linestyle='none')] + \
+                   [plt.Rectangle((0, 0), 1, 1, color=treatment_colors[t], alpha=alpha * 2) for t in used_treatments]
+        labels += ['treatment'] + used_treatments
+    plt.legend(handles, labels, bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=8)
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.show()
+    plt.close()
+    return
+
+
+def session_metric_by_rat_phases_treatment(phases, treatments, metric='proportion_correct', phase_labels=None,
+                                           premature_threshold=PREMATURE_THRESHOLD,
+                                           treatment_colors=TREATMENT_COLORS, alpha=0.12,
+                                           PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """Lineplot of a per-session metric, per rat, concatenating several phases in sequence.
+    `phases` is an ordered dict {phase_name: data}.
+    `metric` is one of:
+        'responses'          - total number of responses emitted in the session
+        'proportion_correct' - reinforced responses / total responses
+        'premature'          - responses shorter than `premature_threshold` (s) / total responses
+        'mean_duration'      - mean response duration (s) in the session
+    `treatments` is a dict {phase_name: {session: treatment}}; each listed session is shaded
+    with the color of its treatment in `treatment_colors` (None = left blank). Sessions listed
+    but not yet run are still shaded, so the planned schedule is visible.
+    `phase_labels` is an optional dict {phase_name: label} written above each phase."""
+
+    ylabel, file_name = _metric_ylabel(metric, premature_threshold)
+
+    metrics = {phase: _session_metric(data, metric, premature_threshold) for phase, data in phases.items()}
+    df_metric, boundaries, total = _concat_phases(metrics, treatments)
+
+    _lineplot_by_rat_phases_treatment(
+        df_metric, 'value', boundaries, total, treatments, phase_labels, ylabel,
+        title=f'{PREFIX}: {ylabel} per Session, per Rat',
+        save_path=os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_{file_name}_by_Rat_Treatment.png'),
+        treatment_colors=treatment_colors, alpha=alpha)
+    return df_metric
+
+
+def plot_parameters_by_rat_phases_treatment(phases, treatments, phase_labels=None,
+                                            params=['mu1', 'sigma1', 'mu2', 'sigma2', 'gamma', 'gamma_2'],
+                                            treatment_colors=TREATMENT_COLORS, alpha=0.12,
+                                            PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH, fit_type='MLE', log=True):
+    """One figure per double Gaussian parameter: lineplot of the parameter per session, per rat,
+    concatenating several phases in sequence. `phases` is an ordered dict {phase_name: df_parameters}.
+    `treatments` and `phase_labels` work as in `session_metric_by_rat_phases_treatment`.
+    If `log`, the time parameters (fitted on log duration) are converted back to seconds."""
+
+    time_params = {'mu1', 'sigma1', 'mu2', 'sigma2'}
+
+    df_plot, boundaries, total = _concat_phases(phases, treatments)
+
+    if log:
+        for p in time_params:
+            df_plot[p] = np.exp(df_plot[p])
+
+    for param in params:
+        ylabel = f'{param} (s)' if log and param in time_params else param
+        _lineplot_by_rat_phases_treatment(
+            df_plot, param, boundaries, total, treatments, phase_labels, ylabel,
+            title=f'{PREFIX}: {param} per Session, per Rat ({fit_type} Fit)',
+            save_path=os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_{param}_{fit_type}_by_Rat_Treatment.png'),
+            treatment_colors=treatment_colors, alpha=alpha)
+    return df_plot
+
+
 # ------- CRITERION PROGRESSION PER RAT/SESSION/GROUP ------
 
 def criterion_progression(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
@@ -707,7 +1181,7 @@ def criterion_progression(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
     df_criterion = data.groupby(['rat', 'session', 'group']).criterion.max().reset_index()
 
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.pointplot(x='session', y='criterion', hue='group', data=df_criterion,
                   palette=COLOR_MAP, dodge=0.2, errorbar='se')
     ax = plt.gca()
@@ -738,7 +1212,7 @@ def percentage_rats_criteria(data, crit = 5, criterion = '5s', PREFIX=PREFIX, OU
     df_tot['percentage'] = df_tot['number_rats'] / df_tot['total_rats']
 
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.pointplot(x='session', y='percentage', hue='group', data=df_tot, palette = COLOR_MAP, dodge = 0.2, errorbar = 'se')
     plt.ylabel("Fraction of Rats")
     plt.xlabel("Session")
@@ -761,7 +1235,7 @@ def sessions_reach_criteria(data, criteria = [2,4,8,10], PREFIX=PREFIX, OUTPUT_P
     df_total_sessions = df.groupby(['rat', 'group', 'criterion']).session.first().reset_index(name = 'n_sessions')
     df_total_sessions = df_total_sessions.query('criterion == @criteria')
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.pointplot(x='criterion', y='n_sessions', hue='group',data=df_total_sessions, palette=COLOR_MAP, dodge = 0.2, errorbar = 'se')
     plt.xlabel("Criterion")
     plt.ylabel("Number of sessions")
@@ -792,7 +1266,7 @@ def trials_reach_criteria(data, criteria = [2,4,8,10], PREFIX=PREFIX, OUTPUT_PAT
     df_total_trials['criterion'] = df_total_trials['criterion'].round()
     df_ = df_total_trials.query('criterion == @criteria').groupby(['rat','group','criterion'])['total_trials'].first().reset_index()
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.pointplot(x='criterion', y='total_trials', hue='group',data=df_, palette=COLOR_MAP, dodge = 0.2, errorbar = 'se')
     plt.xlabel("Criterion")
     plt.ylabel("Number of trials")
@@ -813,6 +1287,7 @@ def trials_reach_criteria_by_rat(data, criteria=[1, 2, 3, 4, 5], PREFIX=PREFIX, 
     df_total_trials = pd.DataFrame()
 
     for r in data.rat.unique():
+        
         df_rat = data.query('rat == @r').copy()
         df_rat['total_trials'] = range(1, len(df_rat) + 1)
         df_total_trials = pd.concat([df_total_trials, df_rat])
@@ -825,7 +1300,7 @@ def trials_reach_criteria_by_rat(data, criteria=[1, 2, 3, 4, 5], PREFIX=PREFIX, 
     palette = dict(zip(rats, sns.color_palette('tab10', n_colors=len(rats))))
 
     plt.figure(figsize=(8, 5))
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.lineplot(x='criterion', y='total_trials', hue='rat', style='group', data=df_,
                  palette=palette, marker='o')
     plt.xlabel("Criterion (s)")
@@ -843,23 +1318,19 @@ def sessions_reach_criteria_by_rat(data, criteria=[1, 2, 3, 4, 5], PREFIX=PREFIX
     """Number of sessions each rat needed to first reach each criterion in `criteria`,
     plotted as one line per rat (instead of averaged per group)."""
 
-    df_total_sessions = pd.DataFrame()
 
-    for r in data.rat.unique():
-        df_rat = data.query('rat == @r').copy()
-        df_rat['total_sessions'] = range(1, len(df_rat) + 1)
-        df_total_sessions = pd.concat([df_total_sessions, df_rat])
+    df = data.copy()
+    df['criterion'] = df['criterion'].round()
+    df_sessions = df.query('criterion == @criteria').groupby(
+        ['rat', 'group', 'criterion'])['session'].first().reset_index(name='total_sessions')
 
-    df_total_sessions['criterion'] = df_total_sessions['criterion'].round()
-    df_ = df_total_sessions.query('criterion == @criteria').groupby(
-        ['rat', 'group', 'criterion'])['total_sessions'].first().reset_index()
 
-    rats = sorted(df_['rat'].unique())
+    rats = sorted(df_sessions['rat'].unique())
     palette = dict(zip(rats, sns.color_palette('tab10', n_colors=len(rats))))
 
     plt.figure(figsize=(8, 5))
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
-    sns.lineplot(x='criterion', y='total_sessions', hue='rat', style='group', data=df_,
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.lineplot(x='criterion', y='total_sessions', hue='rat', style='group', data=df_sessions,
                  palette=palette, marker='o')
     plt.xlabel("Criterion (s)")
     plt.ylabel("Number of sessions")
@@ -870,7 +1341,7 @@ def sessions_reach_criteria_by_rat(data, criteria=[1, 2, 3, 4, 5], PREFIX=PREFIX
     plt.show()
     plt.close()
 
-    return df_
+    return
 
 
 # -------- BOXPLOT OF THE AVERAGE DURATION RESPONSE OF THE LAST THREE SESSIONS --------
@@ -882,7 +1353,7 @@ def boxplot_groups(data, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
 
     last_sessions = data.query('session >= 16').groupby(['rat', 'group']).duration.mean().reset_index(name = 'mean_duration')
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.boxplot(x='group', y='mean_duration', data=last_sessions , width=0.5, showfliers=False, boxprops=dict(alpha=0.3), palette=COLOR_MAP)
     plt.xlabel("Groups")
     plt.ylabel("Average duration (s)")
@@ -907,7 +1378,7 @@ def boxplot_groups_key_sessions(data, key_sessions=[2, 12, 19], PREFIX=PREFIX, O
     df_key = data.query('session in @key_sessions').groupby(['rat', 'session', 'group']).duration.mean().reset_index(name='mean_duration')
 
     plt.figure(figsize=(2.5 * len(key_sessions) + 2, 5))
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     ax = sns.boxplot(x='session', y='mean_duration', hue='group', data=df_key, order=key_sessions, hue_order=ALL_GROUPS,
                       width=0.6, showfliers=False, boxprops=dict(alpha=0.3), palette=COLOR_MAP)
     sns.stripplot(x='session', y='mean_duration', hue='group', data=df_key, order=key_sessions, hue_order=ALL_GROUPS,
@@ -926,23 +1397,99 @@ def boxplot_groups_key_sessions(data, key_sessions=[2, 12, 19], PREFIX=PREFIX, O
     return
 
 
-def duration_by_trial_last_session(data, n_trials=30, last_session=None, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+def _first_session_early_late_segments(data, percentage_trials=30):
+    """Mean duration per rat, first session only, split into 'Early' (first
+    `percentage_trials`% of that rat's trials) vs 'Late' (last
+    `percentage_trials`%). Shared by boxplot_first_session_early_late and
+    run_mixed_anova_first_session_early_late. Returns (df_segment, first_session)."""
+
+    first_session = data['session'].min()
+    df_first = data.query('session == @first_session').copy()
+    df_first['max_trial'] = df_first.groupby('rat')['trial'].transform('max')
+
+    early_label, late_label = 'Early', 'Late'
+
+    n_trials = int(percentage_trials / 100 * df_first['max_trial'].max())
+    df_early = df_first[df_first['trial'] <= n_trials].groupby(['rat', 'group']).duration.mean().reset_index(name='mean_duration')
+    df_early['segment'] = early_label
+
+    df_late = df_first[df_first['trial'] > df_first['max_trial'] - n_trials].groupby(['rat', 'group']).duration.mean().reset_index(name='mean_duration')
+    df_late['segment'] = late_label
+
+    df_segment = pd.concat([df_early, df_late], ignore_index=True)
+    return df_segment, first_session
+
+
+def boxplot_first_session_early_late(data, percentage_trials=30, n_example_rats=2, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
     """
-    Duracao da resposta (eixo y) por trial (eixo x) na ultima sessao,
+    Na primeira sessao de cada rato, calcula a duracao media das primeiras
+    `n_trials` tentativas ('Early') e das ultimas `n_trials` tentativas
+    ('Late'), e plota a distribuicao (boxplot + pontos individuais, um ponto
+    = um rato) comparando Early vs Late, colorido por grupo. Para ilustrar a
+    variacao dentro do animal, liga com uma linha transparente a media Early
+    e a media Late de `n_example_rats` ratos por grupo (os primeiros, em
+    ordem crescente de id).
+    """
+
+    ALL_GROUPS = sorted(data['group'].unique())  # fixed, canonical order
+    COLOR_MAP = dict(zip(ALL_GROUPS, sns.color_palette('Set2', n_colors=len(ALL_GROUPS))))
+
+    early_label, late_label = 'Early', 'Late'
+    df_segment, first_session = _first_session_early_late_segments(data, percentage_trials)
+
+    plt.figure(figsize=(6, 5))
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    ax = sns.boxplot(x='segment', y='mean_duration', hue='group', data=df_segment, order=[early_label, late_label], hue_order=ALL_GROUPS,
+                      width=0.6, showfliers=False, boxprops=dict(alpha=0.3), palette=COLOR_MAP)
+    sns.stripplot(x='segment', y='mean_duration', hue='group', data=df_segment, order=[early_label, late_label], hue_order=ALL_GROUPS,
+                  dodge=True, palette=COLOR_MAP, edgecolor='black', linewidth=0.5, size=5, ax=ax, legend=False)
+
+    # linhas ligando a media Early -> Late do mesmo animal, poucos exemplos por grupo
+    # (posicao x replica o dodge do boxplot: cada grupo ocupa uma fatia de largura
+    # box_width/n_groups, centrada em cada categoria do eixo x)
+    n_groups = len(ALL_GROUPS)
+    box_width = 0.6
+    slot_width = box_width / n_groups
+    group_offset = {group: (i - (n_groups - 1) / 2) * slot_width for i, group in enumerate(ALL_GROUPS)}
+
+    df_pivot = df_segment.pivot(index=['rat', 'group'], columns='segment', values='mean_duration').reset_index()
+
+    for group in ALL_GROUPS:
+        example_rats = sorted(df_pivot.query('group == @group')['rat'].unique())[:n_example_rats]
+        x_early, x_late = group_offset[group], 1 + group_offset[group]
+        for rat in example_rats:
+            row = df_pivot.query('rat == @rat and group == @group').iloc[0]
+            ax.plot([x_early, x_late], [row[early_label], row[late_label]],
+                    color=COLOR_MAP[group], alpha=0.4, lw=1.5, zorder=1)
+
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[:len(ALL_GROUPS)], labels[:len(ALL_GROUPS)], title='Group')
+
+    plt.xlabel(f'Session {first_session} Segment')
+    plt.ylabel(f'Mean Response Duration (s)')
+    plt.title(f'{PREFIX}: Mean Response Duration - Early vs Late (First Session)')
+    plt.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_Boxplot_EarlyLate_FirstSession.png'), dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+
+    return df_segment
+
+
+def duration_by_trial_session(data, n_trials=30, session = 19, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """
+    Duracao da resposta (eixo x) por trial (eixo y) na ultima sessao,
     restrita as primeiras e ultimas `n_trials` tentativas de cada rato. Uma
-    figura maior por grupo, com um subplot por rato (trial x duracao),
+    figura maior por grupo, com um subplot por rato (duracao x trial),
     colorido por segmento (primeiras vs ultimas tentativas).
     """
 
     ALL_GROUPS = sorted(data['group'].unique())  # fixed, canonical order
 
-    if last_session is None:
-        last_session = data['session'].max()
 
-    df_last = data.query('session == @last_session').copy()
-    df_last['max_trial'] = df_last.groupby('rat')['trial'].transform('max')
+    df_ = data.query('session == @session').copy()
+    df_['max_trial'] = df_.groupby('rat')['trial'].transform('max')
 
-    df_sel = df_last[(df_last['trial'] <= n_trials) | (df_last['trial'] > df_last['max_trial'] - n_trials)].copy()
+    df_sel = df_[(df_['trial'] <= n_trials) | (df_['trial'] > df_['max_trial'] - n_trials)].copy()
 
     first_label, last_label = f'First {n_trials}', f'Last {n_trials}'
     df_sel['trial_segment'] = np.where(df_sel['trial'] <= n_trials, first_label, last_label)
@@ -969,22 +1516,22 @@ def duration_by_trial_last_session(data, n_trials=30, last_session=None, PREFIX=
         n_cols = 3
         n_rows = math.ceil(n_rats / n_cols)
 
-        sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+        sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
         fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(6 * n_cols, 4.5 * n_rows),
-                                  constrained_layout=True, sharey=True)
+                                  constrained_layout=True, sharex=True)
         axes = np.atleast_1d(axes).flatten()
 
         for i, rat in enumerate(rats):
             ax = axes[i]
             rat_data = group_data.query('rat == @rat').sort_values('trial')
-            sns.scatterplot(x='trial_plot_pos', y='duration', hue='trial_segment', hue_order=[first_label, last_label],
+            sns.scatterplot(x='duration', y='trial_plot_pos', hue='trial_segment', hue_order=[first_label, last_label],
                              data=rat_data, ax=ax, palette=segment_palette, s=25, legend=(i == 0))
-            ax.axvline(separator_x, color='grey', linestyle=':', lw=1)
+            ax.axhline(separator_x, color='grey', linestyle=':', lw=1)
             ax.set_title(f'Rat {rat}')
-            ax.set_xlabel('Trial (position within first/last block)')
-            ax.set_ylabel('Duration (s)')
-            ax.set_xticks([1, n_trials, n_trials + gap + 1, 2 * n_trials + gap])
-            ax.set_xticklabels(['1', str(n_trials), '1', str(n_trials)])
+            ax.set_xlabel('Duration (s)')
+            ax.set_ylabel('Trial (position within first/last block)')
+            ax.set_yticks([1, n_trials, n_trials + gap + 1, 2 * n_trials + gap])
+            ax.set_yticklabels(['1', str(n_trials), '1', str(n_trials)])
             if i == 0:
                 ax.legend(fontsize=8, title=None, loc='upper right')
 
@@ -992,8 +1539,8 @@ def duration_by_trial_last_session(data, n_trials=30, last_session=None, PREFIX=
             fig.delaxes(axes[j])
 
         plt.suptitle(f'{PREFIX} - {group}: Response Duration by Trial '
-                     f'(Session {last_session}, first/last {n_trials} trials)', fontsize=16)
-        fig.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_{group}_Duration_by_Trial_LastSession.png'),
+                     f'(Session {session}, first/last {n_trials} trials)', fontsize=16)
+        fig.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_{group}_Duration_by_Trial_Session{session}.png'),
                     dpi=300, bbox_inches='tight')
         plt.show()
         plt.close(fig)
@@ -1004,10 +1551,70 @@ def duration_by_trial_last_session(data, n_trials=30, last_session=None, PREFIX=
 #-------- DISTRIBUTION OF RESPONSE DURATIONS ---------
 
 
-def plot_fitting_mle_rats(data, session = '1,2,3', log = False, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
-     
+def plot_duration_histogram_rats(data, session, n_bins = 60, bin_width=0.2, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """
+    Histograma (normalizado) da duracao das respostas em segundos, para a
+    sessao escolhida, com um subplot por rato -- uma figura por grupo -- e
+    uma linha vertical marcando o criterio da sessao para aquele rato.
+    Sem ajuste de gaussiana (ver plot_fitting_mle_rats para o ajuste MLE).
+    `data` deve conter os trials de todos os grupos/ratos e a sessao escolhida.
+    """
+
+    ALL_GROUPS = sorted(data['group'].unique())
+    df_session = data.query('session == @session')
+
+    for group in ALL_GROUPS:
+
+        group_data = df_session.query('group == @group')
+        rats = sorted(group_data['rat'].unique())
+        n_rats = len(rats)
+        if n_rats == 0:
+            continue
+
+        n_cols = 3
+        n_rows = math.ceil(n_rats / n_cols)
+
+        sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+        fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(6 * n_cols, 5 * n_rows),
+                                  constrained_layout=True)
+        axes = np.atleast_1d(axes).flatten()
+
+        for i, rat in enumerate(rats):
+            ax = axes[i]
+            rat_data = group_data.query('rat == @rat')
+
+            bin_centers, hist_density = data_histogram(rat_data['duration'].values, bin_width=bin_width)
+            ax.bar(bin_centers, hist_density, width=bin_width, alpha=0.6, color='#5B9E95', label='Duration Histogram')
+
+            criterion = rat_data['criterion'].max()
+            ax.axvline(criterion, color='grey', linestyle='--', lw=1.5, label='Session Criterion')
+
+            ax.set_xlabel('Duration (s)')
+            ax.set_ylabel('Probability Density')
+            ax.set_title(f'Rat {rat}')
+            ax.legend(fontsize=8, loc='upper right')
+
+        for j in range(n_rats, len(axes)):
+            fig.delaxes(axes[j])
+
+        plt.suptitle(f'{PREFIX} - {group}: Response Duration Histogram (Session {session})', fontsize=16)
+        fig.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_{group}_Duration_Histogram_Session{session}.png'),
+                    dpi=300, bbox_inches='tight')
+        plt.show()
+        plt.close(fig)
+
+    return
+
+
+def plot_fitting_mle_rats(data, session = '1,2,3', log = False, bin_width = None, ceiling = None, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+
     """Double Gaussian (MLE) fit for each group, with one subplot per rat.
-        `data` must contain the trials of all groups and animals and the selected sessions."""
+        `data` must contain the trials of all groups and animals and the selected sessions.
+        `bin_width` sets the width of the displayed histogram bins (passed to MLE());
+        defaults to 0.1 for log=True and 0.5 for log=False -- see MLE().
+        `ceiling` (only used when log=False) caps the upper x-axis limit at this
+        value, in case a rat's max duration is an outlier that would otherwise
+        stretch its subplot's axis far past where the rest of its data sits."""
     
     df_parameters = pd.DataFrame()
     rats = data.rat.unique()
@@ -1028,8 +1635,8 @@ def plot_fitting_mle_rats(data, session = '1,2,3', log = False, PREFIX=PREFIX, O
         ax = axes[i]  
 
         hist = data.query(f'rat == {rat}').duration.values
-        
-        res = MLE(hist, log=log)
+
+        res = MLE(hist, log=log, bin_width=bin_width)
 
         res['df']['rat'] = rat
 
@@ -1059,6 +1666,16 @@ def plot_fitting_mle_rats(data, session = '1,2,3', log = False, PREFIX=PREFIX, O
         ax.plot(res['bin_centers_curve'], res['P1'], '--', color = 'C0', lw=2, label='Component 1')
         ax.plot(res['bin_centers_curve'], res['P2'], '--', color = 'C1', lw=2, label='Component 2')
 
+        if not log:
+            # the fitted curve grid always spans 0.02-30s, which would force the
+            # x-axis to that fixed range; rescale to the rat's actual data instead
+            data_min, data_max = hist.min(), hist.max()
+            margin = 0.05 * (data_max - data_min) if data_max > data_min else 1
+            upper = data_max + margin
+            if ceiling is not None:
+                upper = min(upper, ceiling)
+            ax.set_xlim(max(0, data_min - margin), upper)
+
         last_criterion = data.query(f'rat == {rat}').criterion.max()
         criterion_x = np.log(last_criterion) if log else last_criterion
         ax.axvline(criterion_x, color='grey', linestyle='--', lw=1.5, label='Last Criterion')
@@ -1078,6 +1695,7 @@ def plot_fitting_mle_rats(data, session = '1,2,3', log = False, PREFIX=PREFIX, O
 
     plt.suptitle(f'{subtitle} - Session {session}', fontsize=16)
     #plt.tight_layout()
+
     fig.savefig(os.path.realpath(f'{OUTPUT_PATH}/{PREFIX}_MLE_Fit_{group_name}_{session}.png'))
     plt.show()
     plt.close()
@@ -1086,15 +1704,32 @@ def plot_fitting_mle_rats(data, session = '1,2,3', log = False, PREFIX=PREFIX, O
 
 
 
-def plot_fitting_mle_sessions_per_rat(data, log=False, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+def plot_fitting_mle_sessions_per_rat(data, log=False, baseline_data=None, baseline_label='Baseline',
+                                      t_max=10, upper_offset=None, session_labels=None,
+                                      PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
     """Double Gaussian (MLE) fit for a single rat, with one subplot per session.
-    `data` must contain the trials of a single rat across all of its sessions."""
+    `data` must contain the trials of a single rat across all of its sessions.
+    If `baseline_data` is given (trials of the same rat in a previous phase), all of its
+    sessions are pooled and fitted together in a first subplot titled `baseline_label`.
+    The time axis is shown up to `t_max` seconds (display only: the fit uses all trials).
+    If `upper_offset` is given, the bins (see `data_histogram_max`) and the time axis go up to
+    the longest response of each subplot + `upper_offset` seconds instead, ignoring `t_max`.
+    `session_labels` is an optional dict {session: label} appended to the subplot titles."""
 
     df_parameters = pd.DataFrame()
     rat = data['rat'].iloc[0]
     group_name = data['group'].iloc[0]
     sessions = sorted(data['session'].unique())
-    n_sessions = len(sessions)
+
+    # (session id, subplot title, trials) for each subplot
+    session_labels = session_labels or {}
+    panels = [(session,
+               f'Session {session} ({session_labels[session]})' if session in session_labels else f'Session {session}',
+               data.query('session == @session')) for session in sessions]
+    if baseline_data is not None:
+        panels.insert(0, ('baseline', baseline_label, baseline_data))
+
+    n_sessions = len(panels)
     n_cols = 3
     n_rows = math.ceil(n_sessions / n_cols)
 
@@ -1103,13 +1738,13 @@ def plot_fitting_mle_sessions_per_rat(data, log=False, PREFIX=PREFIX, OUTPUT_PAT
     fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(6*n_cols, 5*n_rows), constrained_layout=True)
     axes = np.atleast_1d(axes).flatten()
 
-    for i, session in enumerate(sessions):
+    for i, (session, panel_title, panel_data) in enumerate(panels):
 
         ax = axes[i]
 
-        hist = data.query('session == @session').duration.values
+        hist = panel_data.duration.values
 
-        res = MLE(hist, log=log)
+        res = MLE(hist, log=log, upper_offset=upper_offset)
 
         res['df']['rat'] = rat
         res['df']['session'] = session
@@ -1119,10 +1754,13 @@ def plot_fitting_mle_sessions_per_rat(data, log=False, PREFIX=PREFIX, OUTPUT_PAT
 
         bin_width = np.diff(res['bin_centers_hist'])[0]  # Calculate bin width from bin centers
 
+        # upper limit of the time axis (s)
+        panel_t_max = t_max if upper_offset is None else hist[hist > 0].max() + upper_offset
+
         if log:
 
             # choose the real-world tick values you want to display
-            tick_values = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30]
+            tick_values = [t for t in [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 20, 30] if t <= panel_t_max]
 
             # convert them to log-space positions (since your data/axis is in natural log)
             tick_positions = np.log(tick_values)
@@ -1135,7 +1773,7 @@ def plot_fitting_mle_sessions_per_rat(data, log=False, PREFIX=PREFIX, OUTPUT_PAT
         ax.plot(res['bin_centers_curve'], res['P1'], '--', color='C0', lw=2, label='Component 1')
         ax.plot(res['bin_centers_curve'], res['P2'], '--', color='C1', lw=2, label='Component 2')
 
-        last_criterion = data.query('session == @session').criterion.max()
+        last_criterion = panel_data.criterion.max()
         criterion_x = np.log(last_criterion) if log else last_criterion
         ax.axvline(criterion_x, color='grey', linestyle='--', lw=1.5, label='Last Criterion')
 
@@ -1146,9 +1784,10 @@ def plot_fitting_mle_sessions_per_rat(data, log=False, PREFIX=PREFIX, OUTPUT_PAT
             verticalalignment='top',
             horizontalalignment='right',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+        ax.set_xlim(np.log(0.02), np.log(panel_t_max)) if log else ax.set_xlim(0, panel_t_max)
         ax.set_xlabel('Time (s)')
         ax.set_ylabel('Probability Density')
-        ax.set_title(f'Session {session}')
+        ax.set_title(panel_title)
         ax.legend(loc='upper left')
 
     for j in range(n_sessions, len(axes)):
@@ -1494,6 +2133,82 @@ def plot_parameters_lineplot_by_rat(df_parameters, order=None, PREFIX=PREFIX, OU
     return
 
 
+def plot_parameters_lineplot_by_rat_phases(phases, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH, fit_type='MLE', log=True):
+    """Same as `plot_parameters_lineplot_by_rat`, but concatenating several phases in sequence.
+    `phases` is an ordered dict {phase_name: df_parameters}. Sessions of each phase are offset
+    so they follow the last session of the previous phase, and a dashed vertical line marks
+    the transition between phases."""
+
+    params = ['mu1', 'sigma1', 'mu2', 'sigma2', 'gamma', 'gamma_2']
+    time_params = {'mu1', 'sigma1', 'mu2', 'sigma2'}
+
+    frames = []
+    offset = 0
+    boundaries = []
+    for phase, df_parameters in phases.items():
+        df_phase = df_parameters.copy()
+        df_phase['phase'] = phase
+        df_phase['cumulative_session'] = df_phase['session'] + offset
+        frames.append(df_phase)
+        boundaries.append((phase, offset))
+        offset += df_phase['session'].max()
+    df_plot = pd.concat(frames, ignore_index=True).sort_values(['group', 'rat'])
+
+    if log:
+        for p in time_params:
+            df_plot[p] = np.exp(df_plot[p])
+
+    rats = sorted(df_plot['rat'].unique())
+    palette = dict(zip(rats, sns.color_palette('tab10', n_colors=len(rats))))
+
+    n_params = len(params)
+    n_cols = 3
+    n_rows = math.ceil(n_params / n_cols)
+
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols,
+                              figsize=(7 * n_cols, 5 * n_rows),
+                              constrained_layout=True)
+    axes = np.atleast_1d(axes).flatten()
+
+    handles, labels = None, None
+
+    for i, param in enumerate(params):
+        ax = axes[i]
+
+        # units='phase' + estimator=None keeps the line broken between phases
+        sns.lineplot(x='cumulative_session', y=param, hue='rat', style='group', data=df_plot,
+                     ax=ax, palette=palette, marker='o', units='phase', estimator=None)
+
+        if handles is None:
+            handles, labels = ax.get_legend_handles_labels()
+        ax.get_legend().remove()
+
+        for phase, start in boundaries:
+            if start > 0:
+                ax.axvline(start + 0.5, color='k', linestyle='--', linewidth=1)
+            ax.text(start + 0.6, 1.01, phase, transform=ax.get_xaxis_transform(),
+                    fontsize=9, fontweight='bold')
+
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_xlabel('Session (cumulative)')
+        ax.set_ylabel(f'{param} (s)' if log and param in time_params else param)
+        ax.set_title(param, pad=14)
+
+    for j in range(n_params, len(axes)):
+        fig.delaxes(axes[j])
+
+    fig.legend(handles, labels, bbox_to_anchor=(1.01, 0.5), loc='center left', fontsize=8)
+
+    plt.suptitle(f'{PREFIX}: Parameters per Rat ({fit_type} Fit)', fontsize=16)
+    fig.savefig(os.path.realpath(
+        f'{OUTPUT_PATH}/{PREFIX}_Lineplot_Parameters_{fit_type}_by_rat.png'),
+        dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close(fig)
+
+    return
+
+
 def plot_parameters_lineplot(df_parameters, order=['early', 'late'], PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH, fit_type='MLE', log=True):
     """If `log` is True (the fit was performed on log-duration data), mu1/sigma1/mu2/sigma2
     are exponentiated (e raised to the parameter value) so their axis reads in seconds;
@@ -1543,6 +2258,142 @@ def plot_parameters_lineplot(df_parameters, order=['early', 'late'], PREFIX=PREF
             dpi=300, bbox_inches='tight')
         plt.show()
         plt.close(fig)
+
+    return
+
+
+def plot_parameters_lineplot_combined(df_parameters, order=['early', 'late'], PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH, fit_type='MLE', log=True):
+    """Same as plot_parameters_lineplot, but draws every group on a single shared
+    axis (hue='group') per parameter, instead of faceting into one subplot per
+    group -- for comparing groups directly on the same plot."""
+
+    params = ['mu1', 'sigma1', 'mu2', 'sigma2', 'gamma', 'gamma_2']
+    time_params = {'mu1', 'sigma1', 'mu2', 'sigma2'}
+
+    df_plot = df_parameters.copy()
+    if log:
+        for p in time_params:
+            df_plot[p] = np.exp(df_plot[p])
+
+    ALL_GROUPS = sorted(df_plot['group'].unique())
+    COLOR_MAP = dict(zip(ALL_GROUPS, sns.color_palette('Set2', n_colors=len(ALL_GROUPS))))
+
+    for param in params:
+        plt.figure()
+        sns.lineplot(x='session', y=param, hue='group', data=df_plot,
+                     errorbar='se', palette=COLOR_MAP)
+
+        ax = plt.gca()
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_xlabel('Session')
+        ax.set_ylabel(f'{param} (s)' if log and param in time_params else param)
+        plt.title(f'{PREFIX}: Parameter {param}')
+        plt.savefig(os.path.realpath(
+            f'{OUTPUT_PATH}/{PREFIX}_Lineplot_{param}_{fit_type}_combined_groups.png'),
+            dpi=300, bbox_inches='tight')
+        plt.show()
+        plt.close()
+
+    return
+
+
+def plot_parameter_continuous_baseline_timeout(baseline_parameters, timeout_parameters, param='mu2',
+                                                baseline_last_session=5, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH,
+                                                fit_type='MLE', log=True):
+    """Lineplot of a single fitted parameter across Baseline sessions followed by
+    Timeout sessions, as if they were one continuous session axis (hue = group).
+    Only the first `baseline_last_session` baseline sessions are kept; timeout
+    sessions are shifted by that many sessions so numbering continues
+    (baseline 1..N, then timeout N+1..N+M). A dashed vertical line marks the
+    boundary between the two phases."""
+
+    time_params = {'mu1', 'sigma1', 'mu2', 'sigma2'}
+
+    df_baseline = baseline_parameters.query('session <= @baseline_last_session').copy()
+
+    df_timeout = timeout_parameters.copy()
+    df_timeout['session'] = df_timeout['session'] + baseline_last_session
+
+    df_plot = pd.concat([df_baseline, df_timeout], ignore_index=True)
+
+    if log and param in time_params:
+        df_plot[param] = np.exp(df_plot[param])
+
+    ALL_GROUPS = sorted(df_plot['group'].unique())
+    COLOR_MAP = dict(zip(ALL_GROUPS, sns.color_palette('Set2', n_colors=len(ALL_GROUPS))))
+
+    plt.figure()
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.lineplot(x='session', y=param, hue='group', hue_order=ALL_GROUPS,
+                 data=df_plot, palette=COLOR_MAP, errorbar='se')
+
+    ax = plt.gca()
+    ax.axvline(baseline_last_session + 0.5, color='gray', linestyle='--', linewidth=1)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.set_xlabel('Session (Baseline -> Timeout)')
+    ax.set_ylabel(f'{param} (s)' if log and param in time_params else param)
+    plt.title(f'{PREFIX}: {param} across Baseline + Timeout Sessions')
+    plt.savefig(os.path.realpath(
+        f'{OUTPUT_PATH}/{PREFIX}_Lineplot_{param}_{fit_type}_Baseline_Timeout_Continuous.png'),
+        dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+
+    return
+
+
+def plot_parameters_boxplot_baseline_timeout_key_sessions(baseline_parameters, timeout_parameters,
+                                                           params=['mu2', 'gamma_2'],
+                                                           baseline_sessions=[1, 5], timeout_sessions=[1, 6],
+                                                           PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH,
+                                                           fit_type='MLE', log=True):
+    """Boxplot (+ individual rat points) of selected fitted parameters, comparing
+    key sessions from the Baseline phase and the Timeout phase side by side on
+    the same axis (hue = group). `baseline_sessions`/`timeout_sessions` pick
+    which sessions from each phase are shown (labelled e.g. 'Baseline S1',
+    'Timeout S6'), with a dashed vertical line marking the boundary between
+    the two phases."""
+
+    time_params = {'mu1', 'sigma1', 'mu2', 'sigma2'}
+
+    df_baseline = baseline_parameters.query('session in @baseline_sessions').copy()
+    df_baseline['session_label'] = 'Baseline S' + df_baseline['session'].astype(int).astype(str)
+
+    df_timeout = timeout_parameters.query('session in @timeout_sessions').copy()
+    df_timeout['session_label'] = 'Timeout S' + df_timeout['session'].astype(int).astype(str)
+
+    df_plot = pd.concat([df_baseline, df_timeout], ignore_index=True)
+
+    order = [f'Baseline S{s}' for s in baseline_sessions] + [f'Timeout S{s}' for s in timeout_sessions]
+
+    if log:
+        for p in time_params:
+            if p in df_plot.columns:
+                df_plot[p] = np.exp(df_plot[p])
+
+    ALL_GROUPS = sorted(df_plot['group'].unique())
+    COLOR_MAP = dict(zip(ALL_GROUPS, sns.color_palette('Set2', n_colors=len(ALL_GROUPS))))
+
+    for param in params:
+        plt.figure(figsize=(2.5 * len(order) + 2, 5))
+        sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
+        ax = sns.boxplot(x='session_label', y=param, hue='group', data=df_plot, order=order, hue_order=ALL_GROUPS,
+                          width=0.6, showfliers=False, boxprops=dict(alpha=0.3), palette=COLOR_MAP)
+        sns.stripplot(x='session_label', y=param, hue='group', data=df_plot, order=order, hue_order=ALL_GROUPS,
+                      dodge=True, palette=COLOR_MAP, edgecolor='black', linewidth=0.5, size=4, ax=ax, legend=False)
+
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(handles[:len(ALL_GROUPS)], labels[:len(ALL_GROUPS)], title='Group')
+        ax.axvline(len(baseline_sessions) - 0.5, color='gray', linestyle='--', linewidth=1)
+
+        plt.xlabel('Session')
+        plt.ylabel(f'{param} (s)' if log and param in time_params else param)
+        plt.title(f'{PREFIX}: {param} Distribution, Baseline vs Timeout (Key Sessions)')
+        plt.savefig(os.path.realpath(
+            f'{OUTPUT_PATH}/{PREFIX}_Boxplot_{param}_{fit_type}_Baseline_Timeout_KeySessions.png'),
+            dpi=300, bbox_inches='tight')
+        plt.show()
+        plt.close()
 
     return
 
@@ -1706,7 +2557,7 @@ def plot_tau_boxplot(df_tau, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH, fit_type='M
     COLOR_MAP = dict(zip(ALL_GROUPS, sns.color_palette('Set2', n_colors=len(ALL_GROUPS))))
 
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.boxplot(x='group', y='tau', data=df_tau, order=ALL_GROUPS, width=0.5,
                 showfliers=False, boxprops=dict(alpha=0.3), palette=COLOR_MAP)
     sns.stripplot(x='group', y='tau', data=df_tau, order=ALL_GROUPS,
@@ -1735,7 +2586,7 @@ def plot_ainf_boxplot(df_tau_free, criterion_line=CRITERION_10S_LOG_ASYMPTOTE,
     COLOR_MAP = dict(zip(ALL_GROUPS, sns.color_palette('Set2', n_colors=len(ALL_GROUPS))))
 
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.boxplot(x='group', y='Ainf', data=df_tau_free, order=ALL_GROUPS, width=0.5,
                 showfliers=False, boxprops=dict(alpha=0.3), palette=COLOR_MAP)
     sns.stripplot(x='group', y='Ainf', data=df_tau_free, order=ALL_GROUPS,
@@ -1789,7 +2640,7 @@ def plot_sessions_to_criterion_boxplot(df_tau, target=CRITERION_10S_LOG_ASYMPTOT
     COLOR_MAP = dict(zip(ALL_GROUPS, sns.color_palette('Set2', n_colors=len(ALL_GROUPS))))
 
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.boxplot(x='group', y='sessions_to_criterion', data=df_valid, order=ALL_GROUPS, width=0.5,
                 showfliers=False, boxprops=dict(alpha=0.3), palette=COLOR_MAP)
     sns.stripplot(x='group', y='sessions_to_criterion', data=df_valid, order=ALL_GROUPS,
@@ -1906,7 +2757,7 @@ def plot_tau_boxplot_by_criterion(df_tau_by_criterion, crit=10, PREFIX=PREFIX, O
     ALL_GROUPS = sorted(df_tau_by_criterion['group'].unique())
 
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.boxplot(x='group', y='tau', hue='criterion_subgroup', data=df_tau_by_criterion,
                 order=ALL_GROUPS, hue_order=[reached_label, not_reached_label],
                 width=0.6, showfliers=False, boxprops=dict(alpha=0.5), palette=SUBGROUP_COLORS)
@@ -1940,7 +2791,7 @@ def plot_ainf_boxplot_by_criterion(df_tau_by_criterion, crit=10, criterion_line=
     ALL_GROUPS = sorted(df_tau_by_criterion['group'].unique())
 
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.boxplot(x='group', y='Ainf', hue='criterion_subgroup', data=df_tau_by_criterion,
                 order=ALL_GROUPS, hue_order=[reached_label, not_reached_label],
                 width=0.6, showfliers=False, boxprops=dict(alpha=0.5), palette=SUBGROUP_COLORS)
@@ -1976,7 +2827,7 @@ def plot_tau_free_vs_fixed_ainf_boxplot(df_tau_free, df_tau_fixed, PREFIX=PREFIX
     ALL_GROUPS = sorted(df_tau['group'].unique())
 
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.boxplot(x='group', y='tau', hue='model_type', data=df_tau, order=ALL_GROUPS,
                 hue_order=['Free A_inf', 'Fixed A_inf'],
                 width=0.6, showfliers=False, boxprops=dict(alpha=0.5))
@@ -2001,7 +2852,7 @@ def plot_tau_all_vs_successful_boxplot(df_tau_all, df_tau_successful, PREFIX=PRE
 
     fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(12, 5), constrained_layout=True)
 
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     for ax, (label, panel_data) in zip(axes, [('All animals', df_tau_all),
                                                ('Animals that reached criterion', df_tau_successful)]):
         sns.boxplot(x='group', y='tau', data=panel_data, order=ALL_GROUPS, ax=ax,
@@ -2068,7 +2919,7 @@ def plot_criterion_tracking_index_lineplot(df_index, order=None, PREFIX=PREFIX, 
         order = sorted(df_index['session'].unique())
 
     plt.figure()
-    sns.set_style("darkgrid", {"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_style("whitegrid", {"grid.color": ".6", "grid.linestyle": ":"})
     sns.lineplot(x='session', y='index', hue='group', data=df_index, hue_order=ALL_GROUPS,
                  palette=COLOR_MAP, errorbar='se')
     ax = plt.gca()
@@ -2084,6 +2935,423 @@ def plot_criterion_tracking_index_lineplot(df_index, order=None, PREFIX=PREFIX, 
     plt.close()
 
     return
+
+
+# ------------------- INFERENCIA ESTATISTICA EM R -------------------
+
+def _session_as_ordered_factor(df, col='session'):
+    """
+    Converte `col` (tipicamente 'session') em categorico ordenado numericamente
+    antes de enviar para o R. Sem isso, a conversao direta para string faz o R
+    ordenar os niveis do fator alfabeticamente (ex.: '1','10','11',...,'2','3'),
+    o que bagunca a ordem de sessoes de dois digitos nas tabelas de post-hoc.
+    """
+    df = df.copy()
+    categories = [str(v) for v in sorted(df[col].unique())]
+    df[col] = pd.Categorical(df[col].astype(str), categories=categories, ordered=True)
+    return df
+
+
+#---- ANOVA ASSUMPTIONS: NORMALITY (Shapiro-Wilk) + HOMOGENEITY (Levene) (R via rpy2) ----
+
+def run_anova_assumptions(data, PREFIX, OUTPUT_PATH):
+    """
+    Checagem de pressupostos da ANOVA mista (grupo x sessao) sobre a
+    duracao media por rato/sessao, via rstatix (R, rpy2):
+      - Shapiro-Wilk: normalidade da duracao media em cada celula grupo x sessao.
+      - Levene: homogeneidade de variancia entre grupos, em cada sessao.
+
+    (O teste de Mauchly, para esfericidade do fator sessao, e reportado por
+    run_mixed_anova — ja e calculado internamente pelo rstatix::anova_test.)
+
+    Salva em OUTPUT_PATH:
+      - {PREFIX}_Shapiro_Normality_MeanDuration.csv
+      - {PREFIX}_Levene_Homogeneity_MeanDuration.csv
+    """
+    df_mean = data.groupby(['rat', 'session', 'group']).duration.mean().reset_index(name='mean_duration')
+
+    df_mean_r = df_mean.astype({'rat': str, 'group': str})
+    df_mean_r = _session_as_ordered_factor(df_mean_r)
+
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        r_df = ro.conversion.py2rpy(df_mean_r)
+    ro.globalenv['df_assump_r'] = r_df
+
+    ro.r('df_assump_r$group <- as.factor(df_assump_r$group)')
+    ro.r('shapiro_tab <- as.data.frame(df_assump_r %>% dplyr::group_by(group, session) %>% rstatix::shapiro_test(mean_duration))')
+    ro.r('levene_tab <- as.data.frame(df_assump_r %>% dplyr::group_by(session) %>% rstatix::levene_test(mean_duration ~ group))')
+
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        shapiro_df = ro.conversion.rpy2py(ro.r('shapiro_tab')).reset_index(drop=True)
+        levene_df = ro.conversion.rpy2py(ro.r('levene_tab')).reset_index(drop=True)
+
+    shapiro_df.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_Shapiro_Normality_MeanDuration.csv', index=False)
+    levene_df.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_Levene_Homogeneity_MeanDuration.csv', index=False)
+
+    n_shapiro_violations = (shapiro_df['p'] < 0.05).sum()
+    n_levene_violations = (levene_df['p'] < 0.05).sum()
+
+    print(f'{PREFIX}: Shapiro-Wilk normality (group x session cells) on mean duration '
+          f'-- {n_shapiro_violations}/{len(shapiro_df)} cells with p < .05')
+    print(shapiro_df)
+    print(f'{PREFIX}: Levene homogeneity of variance (per session) on mean duration '
+          f'-- {n_levene_violations}/{len(levene_df)} sessions with p < .05')
+    print(levene_df)
+
+    return shapiro_df, levene_df
+
+
+#---- MIXED ANOVA (R via rpy2) ----
+
+def run_mixed_anova(data, PREFIX, OUTPUT_PATH):
+    """
+    ANOVA mista de dois fatores: grupo (entre-sujeitos) x sessao
+    (intra-sujeito, medida repetida em cada rato), sobre a duracao media por
+    rato/sessao, via rstatix::anova_test (R, rpy2). Reporta tambem o teste
+    de Mauchly para esfericidade do fator sessao (ja calculado internamente
+    pelo anova_test, usado para decidir a correcao de Greenhouse-Geisser), e
+    um post-hoc de comparacoes multiplas entre grupos, dentro de cada sessao
+    (rstatix::pairwise_t_test, correcao de Holm).
+
+    Salva em OUTPUT_PATH:
+      - {PREFIX}_Mean_Duration_by_Session_Group.csv (duracao media por rato/sessao/grupo, entrada da ANOVA)
+      - {PREFIX}_Mixed_ANOVA_MeanDuration.csv (tabela da ANOVA: efeitos de grupo, sessao e interacao)
+      - {PREFIX}_Mauchly_Sphericity_MeanDuration.csv (teste de Mauchly para o fator sessao)
+      - {PREFIX}_MixedANOVA_PostHoc_Holm_MeanDuration.csv (comparacoes par a par entre grupos, por sessao)
+    """
+    df_mean = data.groupby(['rat', 'session', 'group']).duration.mean().reset_index(name='mean_duration')
+    df_mean.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_Mean_Duration_by_Session_Group.csv', index=False)
+
+    df_mean_r = df_mean.astype({'rat': str, 'group': str})
+    df_mean_r = _session_as_ordered_factor(df_mean_r)
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        r_df = ro.conversion.py2rpy(df_mean_r)
+
+    anova_result = rstatix.anova_test(data=r_df, dv='mean_duration', wid='rat', within='session', between='group')
+    anova_table = rstatix.get_anova_table(anova_result)
+
+    ro.globalenv['anova_result_r'] = anova_result
+    ro.r('mauchly_tab <- as.data.frame(anova_result_r[["Mauchly\'s Test for Sphericity"]])')
+
+    ro.globalenv['df_mean_r'] = r_df
+    ro.r('posthoc_tab <- as.data.frame(df_mean_r %>% dplyr::group_by(session) %>% '
+         'rstatix::pairwise_t_test(mean_duration ~ group, p.adjust.method = "holm"))')
+
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        anova_df = ro.conversion.rpy2py(anova_table)
+        mauchly_df = ro.conversion.rpy2py(ro.r('mauchly_tab')).reset_index(drop=True)
+        posthoc_df = ro.conversion.rpy2py(ro.r('posthoc_tab')).reset_index(drop=True)
+
+    anova_df.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_Mixed_ANOVA_MeanDuration.csv', index=False)
+    mauchly_df.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_Mauchly_Sphericity_MeanDuration.csv', index=False)
+    posthoc_df.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_MixedANOVA_PostHoc_Holm_MeanDuration.csv', index=False)
+
+    print(f'{PREFIX}: Mixed ANOVA (group x session) on mean duration')
+    print(anova_df)
+    print(f'{PREFIX}: Mauchly Test for Sphericity (session factor) on mean duration')
+    print(mauchly_df)
+    print(f'{PREFIX}: Post-hoc pairwise group comparisons per session (Holm-adjusted) on mean duration')
+    print(posthoc_df)
+    return anova_df, posthoc_df
+
+
+#---- NPARLD: NONPARAMETRIC LONGITUDINAL/MIXED ANOVA (R via rpy2) ----
+
+def run_nparld_anova(data, PREFIX, OUTPUT_PATH):
+    """
+    Alternativa nao-parametrica a ANOVA mista: analise nao-parametrica de
+    dados longitudinais (nparLD::nparLD) sobre a duracao media por
+    rato/sessao, com grupo como fator entre-sujeitos (whole-plot) e sessao
+    como fator intra-sujeito (sub-plot). Reporta o Wald-Type Statistic
+    (WTS) e o ANOVA-Type Statistic (ATS, mais robusto em amostras
+    pequenas/moderadas) para grupo, sessao e interacao, alem de um post-hoc
+    de comparacoes multiplas (Tukey) entre os grupos — o que o teste de
+    Friedman nao permite (ele exige o mesmo sujeito em cada nivel, e por
+    isso so compararia sessoes dentro de cada grupo).
+
+    Salva em OUTPUT_PATH:
+      - {PREFIX}_nparLD_ANOVA_MeanDuration.csv (WTS e ATS: grupo, sessao, interacao)
+      - {PREFIX}_nparLD_PostHoc_Group_MeanDuration.csv (comparacoes par a par entre grupos, Tukey)
+    """
+    df_mean = data.groupby(['rat', 'session', 'group']).duration.mean().reset_index(name='mean_duration')
+
+    df_mean_r = df_mean.astype({'rat': str, 'group': str})
+    df_mean_r = _session_as_ordered_factor(df_mean_r)
+
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        r_df = ro.conversion.py2rpy(df_mean_r)
+    ro.globalenv['df_nparld_r'] = r_df
+
+    ro.r('df_nparld_r$rat <- as.factor(df_nparld_r$rat)')
+    ro.r('df_nparld_r$group <- as.factor(df_nparld_r$group)')
+    group_levels = list(ro.r('levels(df_nparld_r$group)'))
+
+    ro.r('''
+    fit_nparld <- nparLD::nparLD(mean_duration ~ group * session, data = df_nparld_r,
+                                  subject = "rat", contrast = list("group", "Tukey"),
+                                  Factor.Information = FALSE)
+    wts_df <- as.data.frame(fit_nparld$WTS)
+    wts_df$statistic_type <- "WTS"
+    wts_df$term <- rownames(wts_df)
+    ats_df <- as.data.frame(fit_nparld$ATS)
+    ats_df$statistic_type <- "ATS"
+    ats_df$term <- rownames(ats_df)
+    anova_tab <- rbind(wts_df[, c("term","statistic_type","Statistic","df","p-value")],
+                        ats_df[, c("term","statistic_type","Statistic","df","p-value")])
+    mctp_df <- fit_nparld$MCTP$Local.Results
+    mctp_df$contrast <- rownames(mctp_df)
+    ''')
+
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        anova_df = ro.conversion.rpy2py(ro.r('anova_tab')).reset_index(drop=True)
+        posthoc_df = ro.conversion.rpy2py(ro.r('mctp_df')).reset_index(drop=True)
+
+    # decodifica os indices numericos do contraste ("2 - 1") para os nomes reais dos grupos
+    level_map = {str(i + 1): lvl for i, lvl in enumerate(group_levels)}
+    def _decode_contrast(c):
+        a, b = [t.strip() for t in c.split('-')]
+        return f'{level_map.get(a, a)} - {level_map.get(b, b)}'
+    posthoc_df['contrast'] = posthoc_df['contrast'].apply(_decode_contrast)
+
+    anova_df.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_nparLD_ANOVA_MeanDuration.csv', index=False)
+    posthoc_df.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_nparLD_PostHoc_Group_MeanDuration.csv', index=False)
+
+    print(f'{PREFIX}: nparLD (nonparametric longitudinal ANOVA: group x session) on mean duration')
+    print(anova_df)
+    print(f'{PREFIX}: nparLD post-hoc pairwise group comparisons (Tukey) on mean duration')
+    print(posthoc_df)
+
+    return anova_df, posthoc_df
+
+
+#---- LEARNED CLASSIFICATION + FISHER'S EXACT TEST (group x learned), R via rpy2 ----
+
+def resolve_original_group(data):
+    """
+    Alguns ratos (54, 57, 62 e 73, no experimento AY12) sao reatribuidos a
+    um outro grupo (LINEAR) apos a sessao ~21-22, dentro do mesmo arquivo de
+    dados -- provavelmente uma extensao/re-treino do rato apos o fim do seu
+    protocolo original. Para manter uma unica atribuicao de grupo por rato,
+    mantemos apenas as sessoes do grupo original (o primeiro cronologicamente)
+    de cada rato, descartando as sessoes posteriores a troca de grupo.
+    """
+    original_group = data.sort_values('session').groupby('rat').group.first().rename('original_group')
+    data = data.merge(original_group, on='rat')
+    data = data.query('group == original_group').drop(columns='original_group').reset_index(drop=True)
+    return data
+
+
+def classify_learned(data, crit=10, min_reinforced_rate=0.05):
+    """
+    Classifica cada rato como 'aprendeu' ou 'nao aprendeu', em duas etapas:
+
+      1. 'reached': ratos que atingiram o criterio maximo (`criterion == crit`
+         em pelo menos um trial), obtidos via `data.query('criterion == @crit').rat.unique()`.
+         A primeira sessao em que isso ocorre (`first_session_reached`) marca
+         o inicio da fase "pos-criterio" de cada rato.
+      2. Por rato/sessao, taxa de recompensa (media de `reinforced`) rotulada
+         como recompensada (> min_reinforced_rate) ou nao recompensada,
+         considerando apenas as sessoes a partir de `first_session_reached`
+         (inclusive) -- i.e., as sessoes apos o rato atingir o criterio de 10s.
+
+    'aprendeu' = ratos 'reached' cujas sessoes pos-criterio foram todas
+    recompensadas (nenhuma sessao, a partir de `first_session_reached`, com
+    taxa de recompensa <= min_reinforced_rate). Os demais (nao atingiram o
+    criterio, ou atingiram mas tiveram ao menos uma sessao pos-criterio nao
+    recompensada) sao classificados como 'nao aprendeu'.
+
+    Retorna um DataFrame: rat, group, reached, all_sessions_rewarded, learned.
+    """
+    first_session_reached = data.query('criterion == @crit').groupby('rat').session.min() \
+        .reset_index(name='first_session_reached')
+    reached_rats = first_session_reached['rat'].unique()
+
+    session_rate = data.groupby(['rat', 'session']).reinforced.mean().reset_index(name='reinforced_rate')
+    session_rate['rewarded_session'] = session_rate['reinforced_rate'] > min_reinforced_rate
+
+    session_rate_post = session_rate.merge(first_session_reached, on='rat', how='inner')
+    session_rate_post = session_rate_post.query('session >= first_session_reached')
+    all_sessions_rewarded = session_rate_post.groupby('rat')['rewarded_session'].all() \
+        .reset_index(name='all_sessions_rewarded')
+
+    classification = data[['rat', 'group']].drop_duplicates().reset_index(drop=True)
+    classification['reached'] = classification['rat'].isin(reached_rats)
+    classification = classification.merge(all_sessions_rewarded, on='rat', how='left')
+    classification['all_sessions_rewarded'] = classification['all_sessions_rewarded'].fillna(False)
+    classification['learned'] = classification['reached'] & classification['all_sessions_rewarded']
+
+    return classification
+
+
+def learned_fisher_test(data, crit=10, min_reinforced_rate=0.05, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """
+    Monta a matriz grupo x (aprendeu / nao aprendeu), a partir de
+    classify_learned, e testa a associacao entre grupo e aprendizado com o
+    teste exato de Fisher (stats::fisher.test, R via rpy2), calculando o
+    p-valor por dois metodos separados:
+      1. Exato -- algoritmo de rede de Mehta-Patel (extensao de Freeman-Halton
+         para tabelas r x c quando ha mais de dois grupos).
+      2. Simulacao de Monte Carlo (simulate.p.value = TRUE, B = 100000),
+         usada como alternativa/comparacao ao exato.
+
+    Salva em OUTPUT_PATH:
+      - {PREFIX}_Learned_Classification.csv (classificacao individual por rato)
+      - {PREFIX}_Learned_Matrix_Group.csv (matriz grupo x aprendeu/nao aprendeu)
+      - {PREFIX}_Learned_FisherExact.csv (tabela com p-valor de cada metodo,
+        e odds ratio quando a matriz e 2x2)
+    """
+    classification = classify_learned(data, crit=crit, min_reinforced_rate=min_reinforced_rate)
+    classification.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_Learned_Classification.csv', index=False)
+
+    matrix = pd.crosstab(classification['group'], classification['learned'])
+    matrix = matrix.rename(columns={True: 'learned', False: 'did_not_learn'})
+    for col in ['learned', 'did_not_learn']:
+        if col not in matrix.columns:
+            matrix[col] = 0
+    matrix = matrix[['learned', 'did_not_learn']]
+    matrix.index.name = 'group'
+    matrix.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_Learned_Matrix_Group.csv')
+
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        r_matrix = ro.conversion.py2rpy(matrix)
+    ro.globalenv['learned_matrix_r'] = r_matrix
+
+    ro.r('''
+        set.seed(42)
+        fisher_exact_res <- tryCatch(
+            fisher.test(as.matrix(learned_matrix_r), workspace = 2e7),
+            error = function(e) NULL
+        )
+        fisher_mc_res <- fisher.test(as.matrix(learned_matrix_r), simulate.p.value = TRUE, B = 100000)
+    ''')
+    exact_failed = bool(ro.r('is.null(fisher_exact_res)')[0])
+    fisher_exact_p = np.nan if exact_failed else ro.r('fisher_exact_res$p.value')[0]
+    fisher_mc_p = ro.r('fisher_mc_res$p.value')[0]
+
+    is_2x2 = matrix.shape == (2, 2)
+    if is_2x2:
+        odds_source = 'fisher_mc_res' if exact_failed else 'fisher_exact_res'
+        fisher_odds_ratio = ro.r(f'{odds_source}$estimate')[0]
+    else:
+        fisher_odds_ratio = np.nan
+
+    fisher_summary = pd.DataFrame({
+        'method': ['exact (network / Freeman-Halton)', 'Monte Carlo simulation (B=100000)'],
+        'p_value': [fisher_exact_p, fisher_mc_p],
+        'odds_ratio': [fisher_odds_ratio, fisher_odds_ratio],
+    })
+    fisher_summary.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_Learned_FisherExact.csv', index=False)
+
+    print(f'{PREFIX}: Learned vs Did Not Learn, by group')
+    print(matrix)
+    print(fisher_summary)
+
+    return matrix, fisher_summary
+
+
+#---- ONE-WAY ANOVA: CUMULATIVE TRIALS TO REACH CRITERION, BETWEEN GROUPS (R via rpy2) ----
+
+def run_oneway_anova_trials_to_criterion(data, crit=10, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """
+    ANOVA de uma via (rstatix::anova_test, R via rpy2): compara, entre os
+    grupos do experimento, o numero cumulativo de tentativas (trials, contado
+    desde o inicio do experimento) que cada rato precisou para atingir o
+    criterio `crit` pela primeira vez -- mesma definicao de "total_trials"
+    usada em trials_reach_criteria, aqui com uma linha por rato (apenas os
+    que atingiram `crit`) e grupo como unico fator (entre-sujeitos).
+
+    Inclui post-hoc de comparacoes multiplas entre grupos (rstatix::tukey_hsd).
+
+    Salva em OUTPUT_PATH:
+      - {PREFIX}_TrialsToCriterion{crit}.csv (trials ate o criterio, uma linha por rato, entrada da ANOVA)
+      - {PREFIX}_TrialsToCriterion{crit}_ANOVA.csv (tabela da ANOVA de uma via)
+      - {PREFIX}_TrialsToCriterion{crit}_PostHoc_Tukey.csv (comparacoes par a par entre grupos)
+    """
+    df_total_trials = pd.DataFrame()
+
+    for r in data.rat.unique():
+        df_rat = data.query('rat == @r').copy()
+        df_rat['total_trials'] = range(1, len(df_rat) + 1)
+        df_total_trials = pd.concat([df_total_trials, df_rat])
+
+    df_total_trials['criterion'] = df_total_trials['criterion'].round()
+    df_crit = df_total_trials.query('criterion == @crit').groupby(['rat', 'group'])['total_trials'] \
+        .first().reset_index()
+    df_crit.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_TrialsToCriterion{crit}.csv', index=False)
+
+    df_crit_r = df_crit.astype({'rat': str, 'group': str})
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        r_df = ro.conversion.py2rpy(df_crit_r)
+
+    anova_result = rstatix.anova_test(data=r_df, dv='total_trials', wid='rat', between='group')
+    anova_table = rstatix.get_anova_table(anova_result)
+
+    ro.globalenv['df_crit_r'] = r_df
+    ro.r('posthoc_tab <- as.data.frame(df_crit_r %>% rstatix::tukey_hsd(total_trials ~ group))')
+
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        anova_df = ro.conversion.rpy2py(anova_table)
+        posthoc_df = ro.conversion.rpy2py(ro.r('posthoc_tab')).reset_index(drop=True)
+
+    anova_df.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_TrialsToCriterion{crit}_ANOVA.csv', index=False)
+    posthoc_df.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_TrialsToCriterion{crit}_PostHoc_Tukey.csv', index=False)
+
+    print(f'{PREFIX}: One-way ANOVA -- cumulative trials to reach criterion {crit}, by group')
+    print(anova_df)
+    print(f'{PREFIX}: Post-hoc pairwise group comparisons (Tukey) on trials to reach criterion {crit}')
+    print(posthoc_df)
+
+    return anova_df, posthoc_df
+
+
+#---- MIXED ANOVA: MEAN DURATION, FIRST vs LAST THIRD OF THE FIRST SESSION (R via rpy2) ----
+
+def run_mixed_anova_first_session_early_late(data, percentage_trials=33, PREFIX=PREFIX, OUTPUT_PATH=OUTPUT_PATH):
+    """
+    ANOVA mista de dois fatores: grupo (entre-sujeitos) x segmento
+    (intra-sujeito -- 'Early': primeiros `percentage_trials`% das tentativas
+    da primeira sessao de cada rato, vs 'Late': ultimos `percentage_trials`%),
+    sobre a duracao media por rato/segmento, via rstatix::anova_test (R,
+    rpy2). Mesma segmentacao usada em boxplot_first_session_early_late (ver
+    _first_session_early_late_segments). Como o fator intra-sujeito tem
+    apenas 2 niveis, esfericidade e trivialmente satisfeita (sem necessidade
+    de correcao de Greenhouse-Geisser). Inclui post-hoc de comparacoes
+    multiplas entre grupos, dentro de cada segmento (rstatix::pairwise_t_test,
+    correcao de Holm).
+
+    Salva em OUTPUT_PATH:
+      - {PREFIX}_MeanDuration_EarlyLate_FirstSession.csv (duracao media por rato/segmento/grupo, entrada da ANOVA)
+      - {PREFIX}_Mixed_ANOVA_EarlyLate_FirstSession.csv (tabela da ANOVA: efeitos de grupo, segmento e interacao)
+      - {PREFIX}_MixedANOVA_PostHoc_Holm_EarlyLate_FirstSession.csv (comparacoes par a par entre grupos, por segmento)
+    """
+    df_segment, first_session = _first_session_early_late_segments(data, percentage_trials)
+    df_segment.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_MeanDuration_EarlyLate_FirstSession.csv', index=False)
+
+    df_segment_r = df_segment.astype({'rat': str, 'group': str})
+    df_segment_r['segment'] = pd.Categorical(df_segment_r['segment'], categories=['Early', 'Late'], ordered=True)
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        r_df = ro.conversion.py2rpy(df_segment_r)
+
+    anova_result = rstatix.anova_test(data=r_df, dv='mean_duration', wid='rat', within='segment', between='group')
+    anova_table = rstatix.get_anova_table(anova_result)
+
+    ro.globalenv['df_segment_r'] = r_df
+    ro.r('posthoc_tab <- as.data.frame(df_segment_r %>% dplyr::group_by(segment) %>% '
+         'rstatix::pairwise_t_test(mean_duration ~ group, p.adjust.method = "holm"))')
+
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        anova_df = ro.conversion.rpy2py(anova_table)
+        posthoc_df = ro.conversion.rpy2py(ro.r('posthoc_tab')).reset_index(drop=True)
+
+    anova_df.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_Mixed_ANOVA_EarlyLate_FirstSession.csv', index=False)
+    posthoc_df.to_csv(os.path.realpath(f'{OUTPUT_PATH}')+'/'+f'{PREFIX}_MixedANOVA_PostHoc_Holm_EarlyLate_FirstSession.csv', index=False)
+
+    print(f'{PREFIX}: Mixed ANOVA (group x Early/Late, session {first_session}) on mean duration')
+    print(anova_df)
+    print(f'{PREFIX}: Post-hoc pairwise group comparisons per segment (Holm-adjusted) on mean duration')
+    print(posthoc_df)
+
+    return anova_df, posthoc_df
 
 
 if __name__ == "__main__":
